@@ -47,8 +47,11 @@ node $S/enrich.mjs entree.csv sortie.csv --state etat.json --only-domains   # ju
   patterns, résultats de vérification et quota du jour → jamais deux fois la même requête.
 - Le journal (stderr) dit pour chaque entreprise : domaine, témoins, pattern et statut. C'est là
   que tu vois quoi traiter à la main.
-- Clés : `MYEMAILVERIFIER_KEY`, `HUNTER_API_KEY` en variables d'environnement ou dans `.env` à côté
-  du script (voir `.env.example`, jamais commité). Sans clé : pas de vérification, `confiance` plafonne à B/C.
+- Clés : `MYEMAILVERIFIER_KEY` (ou `MYEMAILVERIFIER_KEYS=clé1,clé2` — un compte **par membre de
+  l'équipe**, jamais deux comptes pour la même personne), `HUNTER_API_KEY` ; en variables
+  d'environnement ou dans `.env` à côté du script (voir `.env.example`, jamais commité). Le quota de
+  100/jour est suivi par clé ; le script passe à la clé suivante quand la première est épuisée.
+  Sans clé : pas de vérification, `confiance` plafonne à B/C.
 - Relancer le lendemain avec `--verify` pour consommer le nouveau quota ; le script reprend la file
   là où elle en était.
 

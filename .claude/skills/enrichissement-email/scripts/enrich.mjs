@@ -5,7 +5,7 @@
 //
 //   --state fichier.json     état persistant (domaines résolus, patterns, vérifications) — défaut : ./enrich-state.json
 //   --verify                 vérifie via MyEmailVerifier (MYEMAILVERIFIER_KEY) dans la limite du quota
-//   --max-verify N           vérifications maximum pour cette exécution (défaut 100 = quota gratuit/jour)
+//   --max-verify N           vérifications maximum pour cette exécution (défaut 100 ; avec plusieurs clés : 100 × nombre de clés)
 //   --no-search              ne cherche pas le domaine sur le web (utilise seulement la colonne domaine)
 //   --only-domains           s'arrête après la résolution des domaines et la récolte des témoins
 //   --hunter                 utilise Hunter (HUNTER_API_KEY) pour la recherche par domaine (pattern + témoins)
@@ -31,11 +31,15 @@ const opt = (name, def) => { const i = args.indexOf(name); return i > -1 ? args[
 const [inputPath, outputPath] = args.filter((a, i) => !a.startsWith('--') && !['--state', '--max-verify'].includes(args[i - 1]));
 if (!inputPath || !outputPath) { console.error('usage : node enrich.mjs entree.csv sortie.csv [--state s.json] [--verify] [--max-verify N] [--no-search] [--hunter]'); process.exit(1); }
 const STATE_PATH = opt('--state', './enrich-state.json');
-const MAX_VERIFY = Number(opt('--max-verify', 100));
+const MAX_VERIFY = Number(opt('--max-verify', 0)) || 0;
 const DO_VERIFY = flag('--verify');
 const USE_HUNTER = flag('--hunter');
 const NO_SEARCH = flag('--no-search');
-const MEV_KEY = process.env.MYEMAILVERIFIER_KEY || '';
+// Une clé par membre de l'équipe (chacun son compte) : MYEMAILVERIFIER_KEYS="clé1,clé2" ou MYEMAILVERIFIER_KEY.
+const MEV_KEYS = [...new Set(((process.env.MYEMAILVERIFIER_KEYS || '') + ',' + (process.env.MYEMAILVERIFIER_KEY || '')).split(',').map((k) => k.trim()).filter(Boolean))];
+const MEV_KEY = MEV_KEYS[0] || '';
+const MEV_DAILY = Number(process.env.MYEMAILVERIFIER_DAILY || 100);
+const MAX_VERIFY_EFFECTIVE = () => MAX_VERIFY || MEV_DAILY * Math.max(1, MEV_KEYS.length);
 const HUNTER_KEY = process.env.HUNTER_API_KEY || '';
 
 const log = (...a) => console.error(...a);
@@ -196,13 +200,14 @@ async function hunterDomain(domain) {
 
 // MyEmailVerifier — 100 vérifications gratuites par jour, la réponse porte le catch-all.
 // Le format exact de la réponse (clé « Status ») est à confirmer à la première utilisation : voir le journal.
-async function verifyEmail(email) {
-  if (!MEV_KEY) return { status: 'unknown', raw: 'pas de clé MYEMAILVERIFIER_KEY' };
+async function verifyEmail(email, key) {
+  if (!key) return { status: 'unknown', raw: 'pas de clé MYEMAILVERIFIER_KEY' };
   try {
-    const r = await fetch(`https://client.myemailverifier.com/verifier/validate_single/${encodeURIComponent(email)}/${MEV_KEY}`, { signal: AbortSignal.timeout(20000) });
+    const r = await fetch(`https://client.myemailverifier.com/verifier/validate_single/${encodeURIComponent(email)}/${key}`, { signal: AbortSignal.timeout(20000) });
     const j = await r.json();
-    const s = String(j.Status || j.status || j.result || '').toLowerCase();
-    const status = /catch/.test(s) ? 'catch_all' : /^valid|deliverable|ok/.test(s) ? 'valid' : /invalid|undeliverable/.test(s) ? 'invalid' : 'unknown';
+    // Réponse observée : {"Address","catch_all":0|1,"Status":"Valid|Invalid|Catch-all|Unknown|Greylisted",...}
+    const s = String(j.Status || j.status || '').toLowerCase();
+    const status = Number(j.catch_all) === 1 || /catch/.test(s) ? 'catch_all' : /^valid/.test(s) ? 'valid' : /invalid/.test(s) ? 'invalid' : 'unknown';
     return { status, raw: j };
   } catch (e) { return { status: 'unknown', raw: e.message }; }
 }
@@ -211,13 +216,23 @@ async function verifyEmail(email) {
 const state = existsSync(STATE_PATH) ? JSON.parse(readFileSync(STATE_PATH, 'utf8')) : { domains: {}, verified: {}, quota: {} };
 const saveState = () => writeFileSync(STATE_PATH, JSON.stringify(state, null, 1));
 let verifiedThisRun = 0;
+// Quota par clé et par jour : on prend la première clé qui a encore de la marge.
+function pickKey() {
+  const day = today();
+  state.quotaByKey = state.quotaByKey || {};
+  for (const k of MEV_KEYS) { const id = k.slice(0, 6); const used = state.quotaByKey[day + ':' + id] || 0; if (used < MEV_DAILY) return { key: k, id }; }
+  return null;
+}
 async function verifyOnce(email) {
   if (state.verified[email]) return state.verified[email];
-  if (verifiedThisRun >= MAX_VERIFY) return null;
+  if (verifiedThisRun >= MAX_VERIFY_EFFECTIVE()) return null;
+  const pk = pickKey();
+  if (!pk) { log('  quota du jour épuisé sur toutes les clés'); return null; }
   const day = today();
   state.quota[day] = (state.quota[day] || 0) + 1;
+  state.quotaByKey[day + ':' + pk.id] = (state.quotaByKey[day + ':' + pk.id] || 0) + 1;
   verifiedThisRun++;
-  const res = await verifyEmail(email);
+  const res = await verifyEmail(email, pk.key);
   state.verified[email] = { status: res.status, at: new Date().toISOString() };
   if (verifiedThisRun === 1) log('  réponse brute du vérificateur (à contrôler une fois) :', JSON.stringify(res.raw).slice(0, 300));
   saveState();
@@ -248,7 +263,7 @@ for (const p of people) {
   groups.get(key).push(p);
 }
 const ordered = [...groups.entries()].sort((a, b) => b[1].length - a[1].length);
-log(`${people.length} profils, ${ordered.length} entreprises. État : ${STATE_PATH}${DO_VERIFY ? ` · vérification activée (max ${MAX_VERIFY})` : ''}`);
+log(`${people.length} profils, ${ordered.length} entreprises. État : ${STATE_PATH}${DO_VERIFY ? ` · vérification activée (${MEV_KEYS.length} clé(s), max ${MAX_VERIFY_EFFECTIVE()})` : ''}`);
 
 for (const [key, members] of ordered) {
   const label = members[0].entreprise || key;
@@ -310,6 +325,25 @@ for (const [key, members] of ordered) {
     const rivals = ranked.slice(1).filter(([, v]) => v.n >= 2);
     if (rivals.length && info.n < 2 * rivals[0][1].n) d.patternStatus = 'contradictoire';
     else { d.pattern = best; d.patternStatus = info.n >= 2 ? 'confirmé' : 'probable'; d.source = [...new Set(info.sources)].join('+'); d.nb = info.n; }
+  }
+  // Domaine muet : on sonde les 3 patterns les plus fréquents sur UNE personne via le vérificateur.
+  // Une adresse répondue « valid » est un témoin réel ; un catch-all coupe court (rien à apprendre).
+  if (!d.pattern && d.patternStatus === 'inconnu' && DO_VERIFY && MEV_KEY && !d.probed) {
+    const m0 = members.find((m) => m.prenoms.length && m.noms.length);
+    d.probed = [];
+    for (const pat of ['prenom.nom', 'p.nom', 'prenom']) {
+      if (!m0) break;
+      const email = primary(m0, pat) + '@' + d.domain;
+      const v = await verifyOnce(email);
+      if (!v) break;
+      d.probed.push(pat + ':' + v.status);
+      if (v.status === 'catch_all') { d.catch_all = 'oui'; d.patternStatus = 'inconnu (catch-all, sondage impossible)'; break; }
+      if (v.status === 'unknown') { d.catch_all = 'inconnu'; d.patternStatus = 'inconnu (vérificateur muet)'; break; }
+      d.catch_all = 'non';
+      if (v.status === 'valid') { d.pattern = pat; d.patternStatus = 'probable'; d.source = 'sondage'; d.nb = 1; m0.observed = { email, source: 'sondage' }; break; }
+    }
+    if (d.probed.length) log(`  sondage : ${d.probed.join(', ')}`);
+    state.domains[key] = d; saveState();
   }
   log(`  pattern : ${d.pattern || '—'} (${d.patternStatus}${d.nb ? ', ' + d.nb + ' témoin(s)' : ''})`);
   if (!d.pattern) {
