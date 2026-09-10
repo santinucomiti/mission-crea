@@ -26,9 +26,12 @@ function renderTemplate(corps, p) {
     .replace(/\[titre\]/gi, p.titre || '');
 }
 
-function linkedinSearchUrl(p) {
+// linkedin.com/in/<id Sales Navigator> redirige vers le profil public ; sinon recherche par nom.
+function linkedinProfileUrl(p) {
+  if (p.linkedin_url) return { href: p.linkedin_url, label: 'Ouvrir le profil LinkedIn' };
+  if (/^ACwAA/.test(p.id)) return { href: 'https://www.linkedin.com/in/' + p.id, label: 'Ouvrir le profil LinkedIn' };
   const q = [p.nom_complet, p.entreprise].filter(Boolean).join(' ');
-  return 'https://www.linkedin.com/search/results/people/?keywords=' + encodeURIComponent(q);
+  return { href: 'https://www.linkedin.com/search/results/people/?keywords=' + encodeURIComponent(q), label: 'Chercher sur LinkedIn' };
 }
 
 function relanceState(p) {
@@ -41,11 +44,12 @@ async function copyText(text) {
 }
 
 // ---------- composants ----------
+// Initiales toujours rendues sous la photo : si l'image manque ou est bloquée, la mise en page ne bouge pas.
 function Avatar({ p, size }) {
-  const cls = 'avatar' + (size ? ' ' + size : '');
-  return p.photo_url
-    ? html`<img class=${cls} src=${p.photo_url} alt="" loading="lazy" referrerpolicy="no-referrer" />`
-    : html`<div class=${cls}>${initials(p.nom_complet)}</div>`;
+  return html`<div class=${'avatar' + (size ? ' ' + size : '')} aria-hidden="true">
+    <span>${initials(p.nom_complet)}</span>
+    ${p.photo_url && html`<img src=${'/api/photo/' + encodeURIComponent(p.id)} alt="" loading="lazy" onError=${(e) => e.target.remove()} />`}
+  </div>`;
 }
 
 function PersonChip({ name, people }) {
@@ -162,7 +166,7 @@ function ExtensionModal({ onClose, toast }) {
   useEffect(() => { api('/token').then((r) => setToken(r.token)).catch((e) => toast(e.message)); }, []);
   return html`<div class="modal-bg" onClick=${(e) => e.target === e.currentTarget && onClose()}><div class="modal">
     <h2>Connecter l’extension Sales Navigator</h2>
-    <p class="muted">Avec ce jeton, l’extension affiche sur chaque prospect Sales Navigator s’il est déjà dans le CRM et qui l’a contacté, envoie les pages visitées ici automatiquement, et marque « contacté » quand tu envoies une invitation.</p>
+    <p class="muted">Avec ce jeton, l’extension affiche sur chaque prospect Sales Navigator s’il est déjà dans le CRM et s’il a déjà été contacté, envoie les pages visitées ici automatiquement, et marque « contacté » quand tu envoies une invitation.</p>
     <ol class="muted" style="margin:0;padding-left:20px;display:grid;gap:6px">
       <li>Installe le userscript <code>salesnav-rssi-connect.user.js</code> dans Violentmonkey.</li>
       <li>Sur Sales Navigator, clique le bouton flottant « CRM » (ou menu Violentmonkey → « Connecter au CRM ») et colle ce jeton :</li>
@@ -260,7 +264,7 @@ function Detail({ p, people, templates, onPatch, onClose, toast }) {
     <section>
       <div class="actions">
         ${p.profil_url && html`<a class="btn" href=${p.profil_url} target="_blank" rel="noopener">Ouvrir dans Sales Navigator</a>`}
-        <a class="btn" href=${p.linkedin_url || linkedinSearchUrl(p)} target="_blank" rel="noopener">${p.linkedin_url ? 'Ouvrir le profil LinkedIn' : 'Chercher sur LinkedIn'}</a>
+        <a class="btn" href=${linkedinProfileUrl(p).href} target="_blank" rel="noopener">${linkedinProfileUrl(p).label}</a>
       </div>
       <label class="contact-toggle">
         <input type="checkbox" checked=${!!p.contacte} onChange=${(e) => patch({ contacte: e.target.checked })} />
@@ -433,9 +437,9 @@ function App() {
             : html`<div class="list">${visible.map((p) => html`
               <article class=${'prospect' + (p.id === selectedId ? ' selected' : '')} key=${p.id} onClick=${() => setSelectedId(p.id)}>
                 <${Avatar} p=${p} />
-                <div style="min-width:0">
-                  <div class="name">${p.nom_complet}${p.degre && html`<span class="deg">· ${p.degre}</span>`}${p.premium ? html`<span class="deg" title="LinkedIn Premium">★</span>` : ''}</div>
-                  <div class="line">${p.titre}${p.entreprise && html` · <b>${p.entreprise}</b>`}</div>
+                <div class="body">
+                  <div class="name"><span class="who-name">${p.nom_complet}</span>${p.degre && html`<span class="deg">${p.degre}</span>`}${p.premium ? html`<span class="deg" title="LinkedIn Premium">★</span>` : ''}</div>
+                  <div class="line">${p.titre}${p.entreprise && html`<span class="sep">·</span><b>${p.entreprise}</b>`}</div>
                   <div class="meta">
                     ${p.localisation && html`<span>${p.localisation}</span>`}
                     ${p.relations_communes > 0 && html`<span>${p.relations_communes} relation${p.relations_communes > 1 ? 's' : ''} en commun</span>`}

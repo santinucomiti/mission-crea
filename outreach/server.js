@@ -19,6 +19,7 @@ const USERS = (process.env.OUTREACH_USERS || '')
 const SECRET = process.env.OUTREACH_SECRET;
 const DB_PATH = resolve(ROOT, process.env.DB_PATH || './data/outreach.sqlite');
 const FILES_DIR = resolve(ROOT, process.env.FILES_DIR || './data/files');
+const PHOTOS_DIR = resolve(ROOT, process.env.PHOTOS_DIR || './data/photos');
 const MAX_BODY = 20 * 1024 * 1024;
 const MAX_FILE = Number(process.env.MAX_FILE_MB || 500) * 1024 * 1024;
 
@@ -88,6 +89,30 @@ async function sendFile(req, res, row) {
   }
   res.writeHead(200, { ...headers, 'content-length': size });
   return pipeline(createReadStream(path), res);
+}
+
+// Photos de profil servies depuis notre domaine : les URL media.licdn.com expirent et les
+// bloqueurs (Brave) les cachent quand elles sont chargées directement. Copie locale au premier accès.
+const photoFailures = new Map();
+async function sendPhoto(res, prospect) {
+  const file = join(PHOTOS_DIR, prospect.id.replace(/[^A-Za-z0-9_-]/g, '_') + '.jpg');
+  let ok = await stat(file).then(() => true, () => false);
+  if (!ok) {
+    if ((photoFailures.get(prospect.id) || 0) > Date.now()) return json(res, 404, { error: 'photo indisponible' });
+    try {
+      const r = await fetch(prospect.photo_url, { headers: { 'user-agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000) });
+      if (!r.ok || !(r.headers.get('content-type') || '').startsWith('image/')) throw new Error('HTTP ' + r.status);
+      await mkdir(PHOTOS_DIR, { recursive: true });
+      await pipeline(r.body, createWriteStream(file));
+      ok = true;
+    } catch {
+      await rm(file, { force: true });
+      photoFailures.set(prospect.id, Date.now() + 3600_000);
+      return json(res, 404, { error: 'photo indisponible' });
+    }
+  }
+  res.writeHead(200, { 'content-type': 'image/jpeg', 'cache-control': 'private, max-age=604800' });
+  return pipeline(createReadStream(file), res);
 }
 
 const json = (res, status, body) => {
@@ -289,6 +314,11 @@ async function api(req, res, url) {
     const row = db.prepare('SELECT * FROM files WHERE id = ?').get(m[1]);
     if (!row) return json(res, 404, { error: 'fichier introuvable' });
     return sendFile(req, res, row);
+  }
+  if ((m = path.match(/^\/photo\/([^/]+)$/)) && method === 'GET') {
+    const row = db.prepare('SELECT id, photo_url FROM prospects WHERE id = ?').get(decodeURIComponent(m[1]));
+    if (!row?.photo_url) return json(res, 404, { error: 'pas de photo' });
+    return sendPhoto(res, row);
   }
   if ((m = path.match(/^\/files\/([^/]+)$/)) && method === 'DELETE') {
     const row = db.prepare('SELECT * FROM files WHERE id = ?').get(m[1]);
