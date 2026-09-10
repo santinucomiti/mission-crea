@@ -236,6 +236,7 @@ function Detail({ p, people, templates, onPatch, onClose, toast }) {
   const [tplId, setTplId] = useState(templates[0]?.id);
   const [msg, setMsg] = useState('');
   const [notes, setNotes] = useState(p.notes || '');
+  const [tab, setTab] = useState('fiche');
   const notesTimer = useRef();
   useEffect(() => { setNotes(p.notes || ''); }, [p.id]);
   useEffect(() => {
@@ -263,7 +264,15 @@ function Detail({ p, people, templates, onPatch, onClose, toast }) {
       </div>
       <button class="btn ghost small close" onClick=${onClose} aria-label="Fermer">✕</button>
     </div>
+    <nav class="tabs detail-tabs" aria-label="Sections de la fiche">
+      <button class=${'tab' + (tab === 'fiche' ? ' active' : '')} onClick=${() => setTab('fiche')}>Fiche</button>
+      <button class=${'tab' + (tab === 'notes' ? ' active' : '')} onClick=${() => setTab('notes')}>Notes${p.notes ? ' •' : ''}</button>
+    </nav>
 
+    ${tab === 'notes' ? html`<section class="notes-pane">
+      <h3>Notes d’entretien${p.interviewe && p.interviewe_le ? html` <span class="muted" style="text-transform:none;letter-spacing:0">· interviewé le ${fmtDateTime(p.interviewe_le)}</span>` : ''}</h3>
+      <textarea class="notes-area" value=${notes} onInput=${(e) => onNotes(e.target.value)} placeholder="Compte rendu de l’entretien, verbatims, besoins, prochaine étape… Enregistré automatiquement, visible par toute l’équipe." spellcheck="true"></textarea>
+    </section>` : html`
     <section>
       <div class="actions">
         ${p.profil_url && html`<a class="btn" href=${p.profil_url} target="_blank" rel="noopener">Ouvrir dans Sales Navigator</a>`}
@@ -288,9 +297,6 @@ function Detail({ p, people, templates, onPatch, onClose, toast }) {
           <input type="date" value=${p.relance_le || ''} onChange=${(e) => patch({ relance_le: e.target.value })} />
         </label>
       </div>
-      <label class="field">Notes
-        <textarea value=${notes} onInput=${(e) => onNotes(e.target.value)} placeholder="Contexte, réponse, prochaine étape…"></textarea>
-      </label>
     </section>
 
     <section>
@@ -318,7 +324,7 @@ function Detail({ p, people, templates, onPatch, onClose, toast }) {
       <label class="field">URL LinkedIn publique (optionnel)
         <input type="text" value=${p.linkedin_url || ''} placeholder="https://www.linkedin.com/in/…" onChange=${(e) => patch({ linkedin_url: e.target.value })} />
       </label>
-    </section>
+    </section>`}
   </aside>`;
 }
 

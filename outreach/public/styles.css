@@ -168,6 +168,13 @@ label.field > * { font-size: 14px; color: var(--ink); font-weight: 400; }
 .detail .head .close { margin-left: auto; }
 .detail section { padding: 14px 18px; border-bottom: 1px solid var(--line); display: grid; gap: 10px; }
 .detail section h3 { margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-3); font-weight: 600; }
+.tabs { display: flex; gap: 2px; padding: 3px; border-radius: var(--radius); background: var(--ground); }
+.tab { padding: 5px 12px; border: 0; border-radius: 6px; background: transparent; cursor: pointer; font-weight: 500; color: var(--ink-2); }
+.tab:hover { color: var(--ink); }
+.tab.active { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
+.detail-tabs { margin: 12px 18px 0; }
+.detail .notes-pane { flex: 1; border-bottom: 0; grid-template-rows: auto 1fr; }
+.detail .notes-area { height: 100%; min-height: 50vh; resize: none; font-size: 14px; line-height: 1.6; padding: 14px; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .message-box { font-family: var(--font); background: var(--surface-2); }
