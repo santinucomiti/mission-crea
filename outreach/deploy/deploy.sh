@@ -14,7 +14,7 @@ ssh "$HOST" bash -s <<'EOF'
 set -e
 cd /home/ubuntu/outreach
 if [ ! -f .env ]; then
-  echo "Pas de .env sur le serveur : copie .env.example vers .env et renseigne OUTREACH_PASSWORD / OUTREACH_SECRET." >&2
+  echo "Pas de .env sur le serveur : copie .env.example vers .env et renseigne OUTREACH_USERS / OUTREACH_SECRET." >&2
   exit 1
 fi
 sudo systemctl restart outreach

@@ -9,18 +9,22 @@ import { parseCsv, mapRow } from './csv.js';
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const PUBLIC = join(ROOT, 'public');
 const PORT = Number(process.env.PORT || 3500);
-const PASSWORD = process.env.OUTREACH_PASSWORD;
+// OUTREACH_USERS="Santinu:motdepasse,Eva:motdepasse,Rémi:motdepasse" — le mot de passe identifie la personne.
+const USERS = (process.env.OUTREACH_USERS || '')
+  .split(',').map((s) => s.trim()).filter(Boolean)
+  .map((s) => { const i = s.indexOf(':'); return { name: s.slice(0, i).trim(), password: s.slice(i + 1) }; })
+  .filter((u) => u.name && u.password);
 const SECRET = process.env.OUTREACH_SECRET;
 const DB_PATH = resolve(ROOT, process.env.DB_PATH || './data/outreach.sqlite');
 const MAX_BODY = 20 * 1024 * 1024;
 
-if (!PASSWORD || !SECRET) {
-  console.error('OUTREACH_PASSWORD et OUTREACH_SECRET sont requis (voir .env.example)');
+if (!USERS.length || !SECRET) {
+  console.error('OUTREACH_USERS et OUTREACH_SECRET sont requis (voir .env.example)');
   process.exit(1);
 }
 
 const db = openDb(DB_PATH);
-const sessionToken = createHmac('sha256', SECRET).update('outreach-session-v1').digest('hex');
+const sign = (name) => createHmac('sha256', SECRET).update('outreach-session-v2:' + name).digest('hex');
 const loginAttempts = new Map();
 
 const MIME = {
@@ -44,9 +48,16 @@ function cookies(req) {
   );
 }
 
-function isAuthed(req) {
+// Retourne le prénom de la personne connectée, ou null.
+function sessionUser(req) {
   const c = cookies(req).outreach_session || '';
-  return c.length === sessionToken.length && timingSafeEqual(Buffer.from(c), Buffer.from(sessionToken));
+  const i = c.lastIndexOf('.');
+  if (i < 1) return null;
+  const name = c.slice(0, i);
+  const mac = c.slice(i + 1);
+  const expected = sign(name);
+  if (mac.length !== expected.length || !timingSafeEqual(Buffer.from(mac), Buffer.from(expected))) return null;
+  return USERS.some((u) => u.name === name) ? name : null;
 }
 
 function readBody(req) {
@@ -67,8 +78,6 @@ async function readJson(req) {
   const raw = await readBody(req);
   return raw ? JSON.parse(raw) : {};
 }
-
-const who = (req) => decodeURIComponent(req.headers['x-who'] || '') || 'inconnu';
 
 async function serveStatic(req, res, urlPath) {
   const rel = normalize(urlPath === '/' ? '/index.html' : urlPath).replace(/^(\.\.[/\\])+/, '');
@@ -100,9 +109,9 @@ async function api(req, res, url) {
     const attempts = loginAttempts.get(ip) || { n: 0, until: 0 };
     if (Date.now() < attempts.until) return json(res, 429, { error: 'Trop d’essais, réessaie dans une minute.' });
     const { password } = await readJson(req);
-    const ok = typeof password === 'string' && password.length === PASSWORD.length
-      && timingSafeEqual(Buffer.from(password), Buffer.from(PASSWORD));
-    if (!ok) {
+    const user = typeof password === 'string' && USERS.find((u) =>
+      u.password.length === password.length && timingSafeEqual(Buffer.from(password), Buffer.from(u.password)));
+    if (!user) {
       attempts.n++;
       if (attempts.n >= 5) { attempts.n = 0; attempts.until = Date.now() + 60_000; }
       loginAttempts.set(ip, attempts);
@@ -110,8 +119,9 @@ async function api(req, res, url) {
     }
     loginAttempts.delete(ip);
     const secure = (req.headers['x-forwarded-proto'] || '') === 'https' ? '; Secure' : '';
-    res.setHeader('set-cookie', `outreach_session=${sessionToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 90}${secure}`);
-    return json(res, 200, { ok: true });
+    const cookie = encodeURIComponent(user.name) + '.' + sign(user.name);
+    res.setHeader('set-cookie', `outreach_session=${cookie}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 90}${secure}`);
+    return json(res, 200, { ok: true, who: user.name });
   }
 
   if (path === '/logout' && method === 'POST') {
@@ -119,10 +129,12 @@ async function api(req, res, url) {
     return json(res, 200, { ok: true });
   }
 
-  if (!isAuthed(req)) return json(res, 401, { error: 'non connecté' });
+  const who = sessionUser(req);
+  if (!who) return json(res, 401, { error: 'non connecté' });
 
   if (path === '/me' && method === 'GET') {
     return json(res, 200, {
+      who,
       people: db.prepare('SELECT name, color FROM people ORDER BY position').all(),
     });
   }
@@ -135,7 +147,7 @@ async function api(req, res, url) {
   if ((m = path.match(/^\/prospects\/([^/]+)$/)) && method === 'PATCH') {
     const patch = await readJson(req);
     try {
-      const row = updateProspect(db, decodeURIComponent(m[1]), patch, who(req));
+      const row = updateProspect(db, decodeURIComponent(m[1]), patch, who);
       return row ? json(res, 200, row) : json(res, 404, { error: 'prospect introuvable' });
     } catch (e) {
       return json(res, 400, { error: e.message });

@@ -97,7 +97,6 @@ label.field > * { font-size: 14px; color: var(--ink); font-weight: 400; }
 .topbar .search { flex: 1; max-width: 520px; }
 .topbar .spacer { flex: 1; }
 .who { display: flex; align-items: center; gap: 8px; }
-.who select { width: auto; padding-right: 28px; }
 
 .layout {
   display: grid; grid-template-columns: 240px 1fr; min-height: 0;

@@ -7,7 +7,7 @@
   "engines": { "node": ">=22.13" },
   "scripts": {
     "start": "node server.js",
-    "dev": "OUTREACH_PASSWORD=dev OUTREACH_SECRET=dev-secret PORT=3500 node --watch server.js",
+    "dev": "OUTREACH_USERS=Santinu:dev,Eva:dev2,Rémi:dev3 OUTREACH_SECRET=dev-secret PORT=3500 node --watch server.js",
     "import": "node scripts/import.js"
   },
   "dependencies": {

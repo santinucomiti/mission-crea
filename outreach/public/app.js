@@ -1,11 +1,8 @@
 import { html, render, useState, useEffect, useMemo, useRef } from './vendor/htm-preact.js';
 
 // ---------- API ----------
-const WHO_KEY = 'outreach.who';
-const getWho = () => localStorage.getItem(WHO_KEY) || '';
-
 async function api(path, { method = 'GET', body, raw } = {}) {
-  const headers = { 'X-Who': encodeURIComponent(getWho()) };
+  const headers = {};
   if (body !== undefined && !raw) headers['content-type'] = 'application/json';
   const res = await fetch('/api' + path, { method, headers, body: raw ? body : body !== undefined ? JSON.stringify(body) : undefined });
   const data = await res.json().catch(() => ({}));
@@ -81,20 +78,12 @@ function Login({ onOk }) {
   return html`<div class="login"><form onSubmit=${submit}>
     <div class="brand"><span class="logo"></span>Outreach <span class="sub">Mission Créa</span></div>
     <h1>Connexion</h1>
-    <label class="field">Mot de passe partagé
+    <label class="field">Ton mot de passe
       <input type="password" value=${pw} onInput=${(e) => setPw(e.target.value)} autofocus />
     </label>
     ${err && html`<div class="error">${err}</div>`}
     <button class="btn primary" type="submit">Entrer</button>
   </form></div>`;
-}
-
-function WhoModal({ people, onPick }) {
-  return html`<div class="modal-bg"><div class="modal">
-    <h2>Qui es-tu ?</h2>
-    <p class="muted">Sert à savoir qui a contacté qui. Modifiable à tout moment en haut à droite.</p>
-    <div class="actions">${people.map((x) => html`<button class="btn" onClick=${() => onPick(x.name)} style=${`border-color:${x.color}`}>${x.name}</button>`)}</div>
-  </div></div>`;
 }
 
 function ImportModal({ onClose, onDone }) {
@@ -240,7 +229,7 @@ function Detail({ p, people, templates, onPatch, onClose, toast }) {
 function App() {
   const [auth, setAuth] = useState('unknown');
   const [people, setPeople] = useState([]);
-  const [who, setWho] = useState(getWho());
+  const [who, setWho] = useState('');
   const [prospects, setProspects] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [filters, setFilters] = useState({ q: '', contacte: 'all', person: 'all', relance: false, degre: 'all' });
@@ -254,7 +243,7 @@ function App() {
   const load = async () => {
     try {
       const [me, list, tpls] = await Promise.all([api('/me'), api('/prospects'), api('/templates')]);
-      setPeople(me.people); setProspects(list); setTemplates(tpls); setAuth('ok');
+      setPeople(me.people); setWho(me.who); setProspects(list); setTemplates(tpls); setAuth('ok');
     } catch (e) {
       if (e.status === 401) setAuth('no'); else toast(e.message);
     }
@@ -271,7 +260,7 @@ function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const pickWho = (name) => { localStorage.setItem(WHO_KEY, name); setWho(name); };
+  const logout = async () => { await api('/logout', { method: 'POST' }); setAuth('no'); setProspects([]); setSelectedId(null); };
 
   const onPatch = async (id, data) => {
     try {
@@ -323,10 +312,7 @@ function App() {
       <button class="btn primary" onClick=${() => setModal('import')}>Importer un CSV</button>
       <div class="who">
         <${PersonChip} name=${who} people=${people} />
-        <select value=${who} onChange=${(e) => pickWho(e.target.value)} aria-label="Qui es-tu ?">
-          <option value="">Qui es-tu ?</option>
-          ${people.map((x) => html`<option value=${x.name}>${x.name}</option>`)}
-        </select>
+        <button class="btn ghost small" onClick=${logout}>Se déconnecter</button>
       </div>
     </header>
 
@@ -377,7 +363,6 @@ function App() {
       ${selected && html`<${Detail} key=${selected.id} p=${selected} people=${people} templates=${templates} onPatch=${onPatch} onClose=${() => setSelectedId(null)} toast=${toast} />`}
     </div>
 
-    ${!who && people.length > 0 && html`<${WhoModal} people=${people} onPick=${pickWho} />`}
     ${modal === 'import' && html`<${ImportModal} onClose=${() => setModal(null)} onDone=${() => api('/prospects').then(setProspects)} />`}
     ${modal === 'templates' && html`<${TemplatesModal} templates=${templates} onClose=${() => setModal(null)} onChange=${() => api('/templates').then(setTemplates)} />`}
     ${toastMsg && html`<div class="toast">${toastMsg}</div>`}

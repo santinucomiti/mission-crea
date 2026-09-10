@@ -1,7 +1,8 @@
 # Outreach — Mission Créa
 
 Suivi de prospection LinkedIn partagé, alimenté par les exports CSV du userscript
-Sales Navigator (`../salesnav-macro`). Une page, une base SQLite, un mot de passe partagé.
+Sales Navigator (`../salesnav-macro`). Une page, une base SQLite, un mot de passe par personne
+(le mot de passe identifie qui est connecté — `OUTREACH_USERS` dans `.env`).
 
 Pour chaque prospect : contacté ou non (qui, quand), contact attribué (Santinu / Eva / Rémi),
 date de relance, notes, message pré-rempli à copier (`[Prénom]`, `[Nom]`, `[Entreprise]`, `[Titre]`).
@@ -10,7 +11,7 @@ date de relance, notes, message pré-rempli à copier (`[Prénom]`, `[Nom]`, `[E
 
 ```bash
 npm install
-cp .env.example .env        # puis renseigner OUTREACH_PASSWORD et OUTREACH_SECRET
+cp .env.example .env        # puis renseigner OUTREACH_USERS et OUTREACH_SECRET
 npm run dev                 # http://127.0.0.1:3500
 node scripts/import.js ~/Downloads/salesnav-page*.csv   # import en ligne de commande (optionnel)
 ```
