@@ -37,6 +37,17 @@ Ensuite, depuis ce dossier : `./deploy/deploy.sh` (rsync + restart). La base vit
 
 DNS : `outreach.clippingatlas.com` → A `91.134.141.72` (OVH).
 
+## Synchro avec l'extension Sales Navigator
+
+Dans l'app, bouton **Extension** → jeton personnel (`Authorization: Bearer <prénom>.<mac>`,
+dérivé de `OUTREACH_SECRET`, révoqué en changeant le secret). Collé une fois dans le userscript
+(bouton flottant « CRM » ou menu Violentmonkey → « Connecter au CRM »), il permet :
+
+- badge sur chaque prospect Sales Navigator : « ✓ Contacté par Eva · 9 sept. », « CRM · Rémi » (attribué), ou « CRM » ;
+- envoi automatique des pages visitées (`POST /api/sync/upsert`, sans écraser le suivi) ;
+- « Marquer contacté » sur la carte, et marquage automatique quand tu cliques « Envoyer » après le bouton ⚡ ;
+- le bouton ⚡ demande confirmation si quelqu'un a déjà contacté la personne.
+
 ## Import
 
 Bouton « Importer un CSV » dans l'app (plusieurs fichiers à la fois, glisser-déposer) ou
