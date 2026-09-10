@@ -1,9 +1,10 @@
 // ==UserScript==
 // @name         Sales Navigator — liste + Se connecter
 // @namespace    micoti.salesnav
-// @version      0.6.3
-// @description  Par prospect : ouvre « Se connecter », pré-remplit la note ([Prénom], [Nom], [Entreprise], [Titre]) et marque « contacté » dans le CRM Outreach dès le clic. Badges CRM, envoi auto des pages, export CSV.
+// @version      0.7.0
+// @description  Par prospect : ouvre « Se connecter », pré-remplit la note ([Prénom], [Nom], [Entreprise], [Titre]) et marque « contacté » dans le CRM Outreach dès le clic. Badges CRM, envoi auto des pages, export CSV. Sur linkedin.com/in/… : aspire le profil dans la fiche CRM.
 // @match        https://www.linkedin.com/sales/*
+// @match        https://www.linkedin.com/in/*
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
@@ -484,6 +485,119 @@
     .${BTN_CLASS}.err { border-color: #b24020; color: #b24020; }
   `;
   document.head.appendChild(style);
+
+  // ---- Pages linkedin.com/in/… : aspiration du profil vers la fiche CRM ----
+  const PROFILE_KEEP = /^(Infos|À propos|About|Expérience|Experience|Formation|Education|Licences et certifications|Certifications|Compétences|Skills|Langues|Languages|Projets|Publications|Bénévolat|Prix et distinctions|Cours|Recommandations|Centres d’intérêt|Services|Sélection|Featured)$/i;
+  const PROFILE_NOISE = /^(… plus|…voir plus|Voir plus|Afficher la traduction|Afficher toutes les|Tout afficher|Voir tout|Show all|see more)$/i;
+  const TOP_NOISE = /^(·|Coordonnées|Contact info|Message|Plus|More|Se connecter|Connect|Suivre|Follow|Voir dans Sales Navigator|Enregistrer dans Sales Navigator|Voir mes services|Profil amélioré avec Premium|Photo de couverture.*)$/i;
+
+  function profileTopcard() {
+    return document.querySelector('main [id^="com.linkedin.sdui.profile.card"][id$="Topcard"]')
+      || document.querySelector('main section:has(h1)')
+      || document.querySelector('main section');
+  }
+
+  function profileInfo() {
+    const top = profileTopcard();
+    if (!top) return null;
+    const lines = top.innerText.split('\n').map(norm).filter(Boolean);
+    const name = lines[0] || '';
+    if (!name) return null;
+    let i = 1;
+    while (i < lines.length && /^·|^\d+(er|e|nd|rd|th)\b|^\+$/.test(lines[i])) i++;
+    const titre = lines[i] || '';
+    const localisation = lines[i + 1] && !/^(·|Coordonnées|Contact info)$/i.test(lines[i + 1]) ? lines[i + 1] : '';
+    const memberId = (top.id.match(/ref(ACoAA[A-Za-z0-9_-]+)Topcard/) || [])[1] || '';
+    const url = location.href.replace(/[?#].*$/, '');
+    const sections = [...document.querySelectorAll('main section')].filter((sec) => !sec.querySelector('section'));
+    const parts = [];
+    const seen = new Set();
+    for (const sec of sections) {
+      const ls = sec.innerText.split('\n').map(norm).filter((l) => l && !PROFILE_NOISE.test(l));
+      const head = ls[0] || '';
+      const isTop = sec === top || sec.contains(top) || head === name;
+      if (!isTop && !PROFILE_KEEP.test(head)) continue;
+      const body = [];
+      for (const l of (isTop ? ls : ls.slice(1))) {
+        if (isTop && TOP_NOISE.test(l)) continue;
+        if (body[body.length - 1] !== l) body.push(l);
+      }
+      const text = (isTop ? 'Profil' : head) + '\n' + body.join('\n');
+      if (seen.has(text)) continue;
+      seen.add(text);
+      parts.push(text);
+    }
+    const activite = [...document.querySelectorAll('main section')].map((sec) => norm(sec.innerText)).find((t) => /^Activité/.test(t));
+    if (activite) parts.push('Activité (extrait)\n' + activite.slice(0, 1500));
+    return { url, memberId, nomComplet: name, titre, localisation, contexte: parts.join('\n\n').slice(0, 60000) };
+  }
+
+  const profile = { busy: false, lastUrl: '', result: null, info: null };
+
+  function profilePill() {
+    let el = document.querySelector('.sn-macro-crm-indicator');
+    if (!el) {
+      el = document.createElement('button');
+      el.type = 'button';
+      el.className = 'sn-macro-crm-indicator';
+      el.addEventListener('click', async () => {
+        if (!cfg('crmToken')) return askCrmToken();
+        if (profile.result && profile.result.found === false) return pushProfile(true);
+        return pushProfile(false);
+      });
+      document.body.appendChild(el);
+    }
+    const r = profile.result;
+    if (!cfg('crmToken')) { el.dataset.state = 'no-token'; el.textContent = 'CRM : coller le jeton'; return; }
+    if (profile.busy) { el.dataset.state = 'idle'; el.textContent = 'CRM… lecture du profil'; return; }
+    if (!r) { el.dataset.state = 'idle'; el.textContent = 'CRM'; return; }
+    if (r.error) { el.dataset.state = 'error'; el.textContent = 'CRM ✗ ' + r.error; return; }
+    if (r.found === false) { el.dataset.state = 'error'; el.textContent = 'Hors CRM · cliquer pour ajouter'; el.title = 'Crée la fiche dans le CRM avec le contexte du profil'; return; }
+    el.dataset.state = r.interviewe ? 'paused' : 'ok';
+    el.textContent = (r.interviewe ? '🎙 Interviewé' : r.contacte ? '✓ Contacté' + (r.contacte_le ? ' · ' + fmtDay(r.contacte_le) : '') : 'Dans le CRM') + ' · profil enregistré';
+    el.title = 'Cliquer pour ré-aspirer le profil';
+  }
+
+  async function pushProfile(create) {
+    if (profile.busy) return;
+    profile.busy = true; profilePill();
+    try {
+      await sleep(1200);
+      // Les sections (Infos, Expérience…) se chargent au défilement : on parcourt la page une fois.
+      const y0 = window.scrollY;
+      for (let y = 0; y <= document.body.scrollHeight; y += 600) { window.scrollTo(0, y); await sleep(120); }
+      await sleep(900);
+      window.scrollTo(0, y0);
+      const info = profileInfo();
+      if (!info) throw new Error('profil illisible');
+      profile.info = info;
+      profile.result = await crm.request('POST', '/sync/profile', { ...info, create: !!create });
+    } catch (e) {
+      if (e.status === 404) profile.result = { found: false };
+      else { log('profile', e); profile.result = { error: e.message }; if (e.noToken) askCrmToken(); }
+    }
+    profile.busy = false; profilePill();
+  }
+
+  function profileWatch() {
+    const tick = () => {
+      if (!location.pathname.startsWith('/in/')) return;
+      const url = location.href.replace(/[?#].*$/, '');
+      if (url === profile.lastUrl) return;
+      if (!profileTopcard()) return;
+      profile.lastUrl = url; profile.result = null;
+      pushProfile(false);
+    };
+    setInterval(tick, 1000);
+    tick();
+  }
+
+  if (location.pathname.startsWith('/in/')) {
+    profilePill();
+    profileWatch();
+    document.documentElement.dataset.snMacro = 'ready';
+    return;
+  }
 
   let timer;
   new MutationObserver((muts) => {

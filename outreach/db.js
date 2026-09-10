@@ -57,6 +57,10 @@ export function normName(s) {
 function migrate(db) {
   const cols = db.prepare('PRAGMA table_info(prospects)').all().map((c) => c.name);
   if (!cols.includes('nom_norm')) db.exec('ALTER TABLE prospects ADD COLUMN nom_norm TEXT');
+  if (!cols.includes('contexte_linkedin')) {
+    db.exec('ALTER TABLE prospects ADD COLUMN contexte_linkedin TEXT');
+    db.exec('ALTER TABLE prospects ADD COLUMN contexte_maj TEXT');
+  }
   if (!cols.includes('interviewe')) {
     db.exec('ALTER TABLE prospects ADD COLUMN interviewe INTEGER NOT NULL DEFAULT 0');
     db.exec('ALTER TABLE prospects ADD COLUMN interviewe_le TEXT');
@@ -168,6 +172,26 @@ export function markContactedByNames(db, names, who) {
     throw e;
   }
   return result;
+}
+
+// Retrouve la fiche correspondant à un profil linkedin.com/in/… : URL déjà connue, puis identifiant
+// membre (les 9 caractères après le préfixe sont communs aux ids Sales Navigator « ACwAA… » et
+// membre « ACoAA… »), puis nom complet s'il est unique.
+export function findByProfile(db, { url, memberId, nomComplet }) {
+  const clean = (u) => (u || '').replace(/[?#].*$/, '').replace(/\/$/, '');
+  if (url) {
+    const r = db.prepare("SELECT * FROM prospects WHERE rtrim(linkedin_url, '/') = ?").get(clean(url));
+    if (r) return r;
+  }
+  if (memberId && /^ACoAA/.test(memberId)) {
+    const rows = db.prepare("SELECT * FROM prospects WHERE id LIKE 'ACwAA%' AND substr(id, 4, 9) = ?").all(memberId.slice(3, 12));
+    if (rows.length === 1) return rows[0];
+  }
+  if (nomComplet) {
+    const rows = db.prepare('SELECT * FROM prospects WHERE nom_norm = ?').all(normName(nomComplet));
+    if (rows.length === 1) return rows[0];
+  }
+  return null;
 }
 
 export const EDITABLE = ['contacte', 'interviewe', 'notes', 'relance_le', 'linkedin_url'];

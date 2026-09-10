@@ -50,7 +50,9 @@ dérivé de `OUTREACH_SECRET`, révoqué en changeant le secret). Collé une foi
 - badge sur chaque prospect Sales Navigator : « 🎙 Interviewé », « ✓ Contacté · 9 sept. », ou « CRM » ;
 - envoi automatique des pages visitées (`POST /api/sync/upsert`, sans écraser le suivi) ;
 - « Marquer contacté » sur la carte, et marquage automatique dès le clic sur le bouton ⚡ ;
-- le bouton ⚡ demande confirmation si quelqu'un a déjà contacté la personne.
+- le bouton ⚡ demande confirmation si quelqu'un a déjà contacté la personne ;
+- sur `linkedin.com/in/…`, `POST /api/sync/profile` retrouve la fiche (URL, clé d'identifiant commune
+  aux ids `ACwAA…`/`ACoAA…`, ou nom unique) et stocke le texte du profil dans `contexte_linkedin`.
 
 ## Import
 

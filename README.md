@@ -30,7 +30,13 @@ Sur chaque prospect d'une page Sales Navigator (résultats de recherche ou liste
 - un bouton **Marquer contacté** pour le dire au CRM à la main ;
 - dès que tu cliques ⚡, la personne est marquée contactée dans le CRM (pas de clic supplémentaire).
 
-Toutes les pages que tu visites sont envoyées au CRM automatiquement (profil, titre, entreprise…),
+Sur un **profil LinkedIn classique** (`linkedin.com/in/…`), l'extension retrouve la fiche dans le CRM
+(par URL, par identifiant LinkedIn ou par nom) et y enregistre tout le contexte du profil — Infos,
+Expérience, Formation, certifications, extrait d'activité — visible dans la fiche, section « Profil
+LinkedIn ». La pastille en bas à droite indique le statut ; si la personne n'est pas dans le CRM,
+« Hors CRM · cliquer pour ajouter » crée la fiche.
+
+Toutes les pages Sales Navigator que tu visites sont envoyées au CRM automatiquement (profil, titre, entreprise…),
 et un bouton **⬇ CSV page** exporte la page courante si besoin. Si tu fais une recherche qui n'a rien
 à voir avec la mission, clique la pastille verte **« CRM ✓ … »** en bas à droite : elle passe en
 **« CRM ⏸ pause »** et plus rien n'est envoyé (les badges restent visibles). Re-clique pour reprendre.

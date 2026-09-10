@@ -303,6 +303,7 @@ function Detail({ p, people, templates, onPatch, onClose, toast }) {
     <${Files} p=${p} toast=${toast} />
 
     ${p.a_propos && html`<section><h3>À propos</h3><div class="about">${p.a_propos}</div></section>`}
+    ${p.contexte_linkedin && html`<section><h3>Profil LinkedIn <span class="muted" style="text-transform:none;letter-spacing:0">· aspiré le ${fmtDateTime(p.contexte_maj)}</span></h3><div class="about context">${p.contexte_linkedin}</div></section>`}
 
     <section>
       <h3>Signaux</h3>

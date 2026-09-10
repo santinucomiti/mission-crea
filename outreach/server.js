@@ -5,7 +5,7 @@ import { mkdir, readFile, rm, stat } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
 import { basename, extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { openDb, upsertProspects, updateProspect, markContactedByNames } from './db.js';
+import { openDb, upsertProspects, updateProspect, markContactedByNames, findByProfile, normName } from './db.js';
 import { parseCsv, mapRow, fromLeadInfo } from './csv.js';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
@@ -232,6 +232,31 @@ async function api(req, res, url) {
   }
 
   // ---- synchro extension ----
+  // Page linkedin.com/in/… : retrouve la fiche et y enregistre le contexte du profil (texte).
+  if (path === '/sync/profile' && method === 'POST') {
+    const b = await readJson(req);
+    const url = String(b.url || '').replace(/[?#].*$/, '').replace(/\/$/, '');
+    const nomComplet = String(b.nomComplet || '').trim();
+    let row = findByProfile(db, { url, memberId: b.memberId, nomComplet });
+    if (!row && b.create && nomComplet) {
+      const [prenom, ...rest] = nomComplet.split(/\s+/);
+      const id = 'in-' + (url.match(/\/in\/([^/]+)/)?.[1] || normName(nomComplet).replace(/ /g, '-')).slice(0, 80);
+      const now = new Date().toISOString();
+      db.prepare(`INSERT OR IGNORE INTO prospects (id, prenom, nom, nom_complet, nom_norm, titre, localisation, linkedin_url, source_file, imported_at, updated_at)
+        VALUES (@id, @prenom, @nom, @nomComplet, @norm, @titre, @localisation, @url, 'linkedin', @now, @now)`)
+        .run({ id, prenom, nom: rest.join(' '), nomComplet, norm: normName(nomComplet), titre: b.titre || '', localisation: b.localisation || '', url, now });
+      row = db.prepare('SELECT * FROM prospects WHERE id = ?').get(id);
+    }
+    if (!row) return json(res, 404, { found: false });
+    const now = new Date().toISOString();
+    db.prepare(`UPDATE prospects SET linkedin_url = COALESCE(NULLIF(linkedin_url, ''), @url),
+      titre = CASE WHEN titre IS NULL OR titre = '' THEN @titre ELSE titre END,
+      localisation = CASE WHEN localisation IS NULL OR localisation = '' THEN @localisation ELSE localisation END,
+      contexte_linkedin = @contexte, contexte_maj = @now, updated_at = @now WHERE id = @id`)
+      .run({ id: row.id, url: url || null, titre: b.titre || '', localisation: b.localisation || '', contexte: String(b.contexte || '').slice(0, 60000), now });
+    return json(res, 200, { found: true, ...db.prepare('SELECT id, nom_complet, contacte, contacte_le, interviewe, interviewe_le, notes FROM prospects WHERE id = ?').get(row.id) });
+  }
+
   if (path === '/sync/status' && method === 'GET') {
     const ids = (url.searchParams.get('ids') || '').split(',').filter(Boolean).slice(0, 200);
     const out = {};
