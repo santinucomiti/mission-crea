@@ -102,9 +102,8 @@ label.field > * { font-size: 14px; color: var(--ink); font-weight: 400; }
 .tab { padding: 5px 12px; border: 0; border-radius: 6px; background: transparent; cursor: pointer; font-weight: 500; color: var(--ink-2); }
 .tab:hover { color: var(--ink); }
 .tab.active { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
-.layout.single, .layout.single.with-detail { grid-template-columns: 1fr; }
 .main.notes { display: grid; grid-template-rows: auto 1fr; }
-.notes-body { padding: 16px 20px 24px; min-height: 0; max-width: 960px; width: 100%; margin: 0 auto; }
+.notes-body { padding: 16px 20px 24px; min-height: 0; }
 .notes-body textarea {
   width: 100%; height: 100%; min-height: 60vh; resize: none; padding: 18px 20px;
   font: 15px/1.6 var(--font); background: var(--surface); border-radius: var(--radius);

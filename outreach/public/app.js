@@ -454,7 +454,7 @@ function App() {
       </div>
     </header>
 
-    ${view === 'notes' ? html`<div class="layout single"><${NotesView} who=${who} toast=${toast} /></div>` : html`<div class=${'layout' + (selected ? ' with-detail' : '')}>
+    ${view === 'notes' ? html`<div class="layout"><${NotesView} who=${who} toast=${toast} /></div>` : html`<div class=${'layout' + (selected ? ' with-detail' : '')}>
       <nav class="rail">
         <h3>Suivi</h3>
         <button class=${'row' + (filters.contacte === 'all' && !filters.relance ? ' active' : '')} onClick=${() => set({ contacte: 'all', relance: false })}>Tous <span class="n">${counts.total}</span></button>
