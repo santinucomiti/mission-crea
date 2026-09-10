@@ -199,17 +199,69 @@ export const EDITABLE = ['contacte', 'interviewe', 'notes', 'relance_le', 'linke
 
 // Zone déduite de la localisation Sales Navigator ; `zone` en base est une surcharge manuelle (FR / INT).
 const FR_PLACES = /\bFrance\b|Île-de-France|Ile-de-France|\bParis\b|\bLyon\b|\bMarseille\b|\bBordeaux\b|\bLille\b|\bToulouse\b|\bNantes\b|\bStrasbourg\b|\bRennes\b|\bNice\b|\bMontpellier\b|\bGrenoble\b|\bRouen\b|\bReims\b|\bDijon\b|\bTours\b|\bOrléans\b|\bNancy\b|\bMetz\b|\bAngers\b|\bCaen\b|\bBrest\b|\bLe Havre\b|\bToulon\b|\bNîmes\b|\bClermont-Ferrand\b|\bLimoges\b|\bPerpignan\b|\bAix-en-Provence\b|\bAnnecy\b|\bSophia Antipolis\b|Auvergne-Rhône-Alpes|Occitanie|Bretagne|Normandie|Provence-Alpes|Nouvelle-Aquitaine|Hauts-de-France|Grand Est|Pays de la Loire|Bourgogne-Franche-Comté|Centre-Val de Loire|\bCorse\b|Guadeloupe|Martinique|La Réunion|\bRéunion\b|Guyane|Mayotte|Nouvelle-Calédonie|Polynésie/i;
-const FOREIGN = /Belgique|Belgium|Suisse|Switzerland|Luxembourg|Royaume-Uni|United Kingdom|\bUK\b|England|Allemagne|Germany|Deutschland|Italie|Italy|Italia|Espagne|Spain|España|Pays-Bas|Netherlands|Portugal|Canada|Québec|Quebec|Maroc|Morocco|Tunisie|Algérie|Sénégal|Côte d’Ivoire|Cote d'Ivoire|États-Unis|United States|\bUSA\b|Irlande|Ireland|Autriche|Austria|Pologne|Poland|Suède|Sweden|Danemark|Denmark|Norvège|Norway|Finlande|Finland|Grèce|Greece|Roumanie|Romania|Tchéquie|Czech|Hongrie|Hungary|Turquie|Turkey|Israël|Israel|Émirats|Emirates|Dubaï|Dubai|Singapour|Singapore|Australie|Australia|Inde|India|Chine|China|Japon|Japan|Brésil|Brazil|Mexique|Mexico|Monaco|Genève|Geneva|Lausanne|Zurich|Zürich|Bâle|Basel|Berne|Bern|Bruxelles|Brussels|Anvers|Antwerp|Liège|Londres|London|Manchester|Amsterdam|Rotterdam|Berlin|Munich|München|Francfort|Frankfurt|Hambourg|Hamburg|Milan|Milano|Rome|Roma|Turin|Torino|Madrid|Barcelone|Barcelona|Lisbonne|Lisbon|Porto|Montréal|Montreal|Toronto|New York|San Francisco|Boston|Dublin|Vienne|Vienna|Varsovie|Warsaw|Stockholm|Copenhague|Copenhagen|Oslo|Helsinki|Athènes|Athens|Bucarest|Prague|Budapest|Istanbul|Tel Aviv|Casablanca|Rabat|Tunis|Alger|Dakar|Abidjan/i;
+// Pays déduit de la localisation Sales Navigator (noms français ou anglais, grandes villes connues).
+const COUNTRIES = [
+  ['France', /\bFrance\b/],
+  ['Belgique', /Belgique|Belgium|Bruxelles|Brussels|Anvers|Antwerp|Liège|Gand|Ghent/],
+  ['Suisse', /Suisse|Switzerland|Schweiz|Genève|Geneva|Lausanne|Zurich|Zürich|Bâle|Basel|Berne|\bBern\b/],
+  ['Luxembourg', /Luxembourg/],
+  ['Royaume-Uni', /Royaume-Uni|United Kingdom|\bUK\b|England|Angleterre|Scotland|Écosse|Wales|Londres|London|Manchester|Birmingham|Edinburgh|Édimbourg/],
+  ['Allemagne', /Allemagne|Germany|Deutschland|Berlin|Munich|München|Francfort|Frankfurt|Hambourg|Hamburg|Cologne|Köln|Stuttgart|Düsseldorf/],
+  ['Italie', /Italie|Italy|Italia|Milan|Milano|\bRome\b|\bRoma\b|Turin|Torino|Naples|Napoli|Bologne|Bologna/],
+  ['Espagne', /Espagne|Spain|España|Madrid|Barcelone|Barcelona|Valence|Valencia|Séville|Sevilla|Bilbao/],
+  ['Pays-Bas', /Pays-Bas|Netherlands|Nederland|Amsterdam|Rotterdam|La Haye|The Hague|Utrecht|Eindhoven/],
+  ['Portugal', /Portugal|Lisbonne|Lisbon|Lisboa|Porto/],
+  ['Irlande', /Irlande|Ireland|Dublin/],
+  ['Autriche', /Autriche|Austria|Vienne|Vienna|\bWien\b/],
+  ['Pologne', /Pologne|Poland|Varsovie|Warsaw|Cracovie|Kraków/],
+  ['Suède', /Suède|Sweden|Stockholm|Göteborg/],
+  ['Danemark', /Danemark|Denmark|Copenhague|Copenhagen/],
+  ['Norvège', /Norvège|Norway|\bOslo\b/],
+  ['Finlande', /Finlande|Finland|Helsinki/],
+  ['Grèce', /Grèce|Greece|Athènes|Athens/],
+  ['Roumanie', /Roumanie|Romania|Bucarest|Bucharest/],
+  ['Tchéquie', /Tchéquie|Czech|Prague|Praha/],
+  ['Hongrie', /Hongrie|Hungary|Budapest/],
+  ['Turquie', /Turquie|Turkey|Türkiye|Istanbul|Ankara/],
+  ['Israël', /Israël|Israel|Tel Aviv/],
+  ['Émirats arabes unis', /Émirats|Emirates|Dubaï|Dubai|Abu Dhabi/],
+  ['Singapour', /Singapour|Singapore/],
+  ['Australie', /Australie|Australia|Sydney|Melbourne/],
+  ['Inde', /\bInde\b|\bIndia\b|Bangalore|Bengaluru|Mumbai|Delhi/],
+  ['Chine', /\bChine\b|\bChina\b|Shanghai|Beijing|Pékin|Hong Kong/],
+  ['Japon', /Japon|Japan|Tokyo/],
+  ['Brésil', /Brésil|Brazil|Brasil|São Paulo|Sao Paulo/],
+  ['Mexique', /Mexique|Mexico/],
+  ['Canada', /Canada|Québec|Quebec|Montréal|Montreal|Toronto|Vancouver|Ottawa/],
+  ['États-Unis', /États-Unis|United States|\bUSA\b|\bU\.S\.|New York|San Francisco|Boston|Chicago|Los Angeles|Seattle|Austin|Washington|California|Texas/],
+  ['Maroc', /Maroc|Morocco|Casablanca|Rabat|Marrakech/],
+  ['Tunisie', /Tunisie|Tunisia|Tunis/],
+  ['Algérie', /Algérie|Algeria|Alger/],
+  ['Sénégal', /Sénégal|Senegal|Dakar/],
+  ['Côte d’Ivoire', /Côte d.Ivoire|Ivory Coast|Abidjan/],
+  ['Monaco', /Monaco/],
+];
+export function countryOf(loc) {
+  loc = (loc || '').trim();
+  if (!loc) return '';
+  for (const [name, re] of COUNTRIES) if (re.test(loc)) return name;
+  if (FR_PLACES.test(loc) || /et périphérie$/i.test(loc)) return 'France';
+  // Dernier segment « Ville, Région, Pays » sinon.
+  const parts = loc.split(',').map((x) => x.trim()).filter(Boolean);
+  return parts.length >= 2 ? parts[parts.length - 1] : 'Autre';
+}
 export function zoneOf(p) {
   if (p.zone === 'FR' || p.zone === 'INT') return p.zone;
-  const loc = (p.localisation || '').trim();
-  if (!loc) return '';
-  if (/\bFrance\b/.test(loc)) return 'FR';
-  if (FOREIGN.test(loc)) return 'INT';
-  if (FR_PLACES.test(loc) || /et périphérie$/i.test(loc)) return 'FR';
-  return 'INT';
+  const c = countryOf(p.localisation);
+  return c ? (c === 'France' ? 'FR' : 'INT') : '';
 }
-export const withZone = (p) => ({ ...p, zone_calc: zoneOf(p) });
+export function paysOf(p) {
+  const c = countryOf(p.localisation);
+  if (p.zone === 'FR') return 'France';
+  if (p.zone === 'INT') return c && c !== 'France' ? c : 'International';
+  return c;
+}
+export const withZone = (p) => ({ ...p, zone_calc: zoneOf(p), pays_calc: paysOf(p) });
 
 export function updateProspect(db, id, patch, who) {
   const current = db.prepare('SELECT * FROM prospects WHERE id = ?').get(id);

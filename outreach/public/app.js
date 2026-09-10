@@ -374,11 +374,12 @@ function App() {
   };
 
   const counts = useMemo(() => {
-    const c = { total: prospects.length, contacte: 0, aContacter: 0, interviewe: 0, relance: 0, degre: {}, zone: { FR: 0, INT: 0, '': 0 } };
+    const c = { total: prospects.length, contacte: 0, aContacter: 0, interviewe: 0, relance: 0, degre: {}, zone: { FR: 0, INT: 0, '': 0 }, pays: {} };
     for (const p of prospects) {
       if (p.contacte) c.contacte++; else c.aContacter++;
       if (p.interviewe) c.interviewe++;
       c.zone[p.zone_calc || ''] = (c.zone[p.zone_calc || ''] || 0) + 1;
+      c.pays[p.pays_calc || ''] = (c.pays[p.pays_calc || ''] || 0) + 1;
       const rs = relanceState(p);
       if (rs === 'due' || rs === 'overdue') c.relance++;
       if (p.degre) c.degre[p.degre] = (c.degre[p.degre] || 0) + 1;
@@ -393,7 +394,7 @@ function App() {
         if (filters.contacte === 'oui' && !p.contacte) return false;
         if (filters.contacte === 'non' && p.contacte) return false;
         if (filters.contacte === 'interviewe' && !p.interviewe) return false;
-        if (filters.zone !== 'all' && (p.zone_calc || '') !== filters.zone) return false;
+        if (filters.zone !== 'all' && (p.pays_calc || '') !== filters.zone) return false;
         if (filters.degre !== 'all' && p.degre !== filters.degre) return false;
         if (filters.relance) { const rs = relanceState(p); if (rs !== 'due' && rs !== 'overdue') return false; }
         if (q && !norm([p.nom_complet, p.titre, p.entreprise, p.localisation, p.notes].join(' ')).includes(q)) return false;
@@ -432,11 +433,10 @@ function App() {
         <button class=${'row' + (filters.contacte === 'interviewe' && !filters.relance ? ' active' : '')} onClick=${() => set({ contacte: 'interviewe', relance: false })}>Interviewés <span class="n">${counts.interviewe}</span></button>
         <button class=${'row' + (filters.relance ? ' active' : '')} onClick=${() => set({ relance: !filters.relance, contacte: 'all' })}>Relances dues <span class="n">${counts.relance}</span></button>
 
-        <h3>Zone</h3>
-        <button class=${'row' + (filters.zone === 'all' ? ' active' : '')} onClick=${() => set({ zone: 'all' })}>Toutes <span class="n">${counts.total}</span></button>
-        <button class=${'row' + (filters.zone === 'FR' ? ' active' : '')} onClick=${() => set({ zone: 'FR' })}>France <span class="n">${counts.zone.FR}</span></button>
-        <button class=${'row' + (filters.zone === 'INT' ? ' active' : '')} onClick=${() => set({ zone: 'INT' })}>International <span class="n">${counts.zone.INT}</span></button>
-        ${counts.zone[''] > 0 && html`<button class=${'row' + (filters.zone === '' ? ' active' : '')} onClick=${() => set({ zone: '' })}>Non renseignée <span class="n">${counts.zone['']}</span></button>`}
+        <h3>Pays</h3>
+        <button class=${'row' + (filters.zone === 'all' ? ' active' : '')} onClick=${() => set({ zone: 'all' })}>Tous <span class="n">${counts.total}</span></button>
+        ${Object.entries(counts.pays).filter(([k]) => k).sort((a, b) => (a[0] === 'France' ? -1 : b[0] === 'France' ? 1 : b[1] - a[1] || a[0].localeCompare(b[0], 'fr'))).map(([k, n]) => html`<button class=${'row' + (filters.zone === k ? ' active' : '')} onClick=${() => set({ zone: k })}>${k === 'France' ? 'France' : '🌍 ' + k} <span class="n">${n}</span></button>`)}
+        ${counts.pays[''] > 0 && html`<button class=${'row' + (filters.zone === '' ? ' active' : '')} onClick=${() => set({ zone: '' })}>Non renseigné <span class="n">${counts.pays['']}</span></button>`}
 
         <h3>Degré</h3>
         <button class=${'row' + (filters.degre === 'all' ? ' active' : '')} onClick=${() => set({ degre: 'all' })}>Tous</button>
@@ -465,7 +465,7 @@ function App() {
                     ${p.notes && html`<span title=${p.notes}>📝 note</span>`}
                   </div>
                 </div>
-                <div class="chips"><${ContactChip} p=${p} />${p.zone_calc === 'INT' && html`<span class="chip intl" title=${p.localisation}>🌍 International</span>`}<${RelanceChip} p=${p} /></div>
+                <div class="chips"><${ContactChip} p=${p} />${p.zone_calc === 'INT' && html`<span class="chip intl" title=${p.localisation}>🌍 ${p.pays_calc}</span>`}<${RelanceChip} p=${p} /></div>
               </article>`)}</div>`}
       </main>
 

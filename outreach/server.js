@@ -289,7 +289,7 @@ async function api(req, res, url) {
       FROM prospects p ORDER BY p.nom_complet COLLATE NOCASE`).all().map(withZone);
     const cols = [
       ['nom_complet', 'Nom complet'], ['prenom', 'Prénom'], ['nom', 'Nom'], ['titre', 'Titre'], ['entreprise', 'Entreprise'],
-      ['localisation', 'Localisation'], ['zone_calc', 'Zone'], ['degre', 'Degré'],
+      ['localisation', 'Localisation'], ['pays_calc', 'Pays'], ['zone_calc', 'Zone'], ['degre', 'Degré'],
       ['contacte', 'Contacté'], ['contacte_le', 'Contacté le'],
       ['interviewe', 'Interviewé'], ['interviewe_le', 'Interviewé le'],
       ['relance_le', 'Relance le'], ['notes', 'Notes'], ['nb_fichiers', 'Fichiers'],
