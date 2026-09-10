@@ -1,12 +1,16 @@
 // ==UserScript==
 // @name         Sales Navigator — liste + Se connecter
 // @namespace    micoti.salesnav
-// @version      0.3.0
-// @description  Par prospect : ajoute à la liste cible, ouvre « Se connecter », pré-remplit la note ([Prénom], [Nom], [Entreprise], [Titre]). Export CSV de la page.
+// @version      0.4.0
+// @description  Par prospect : ajoute à la liste cible, ouvre « Se connecter », pré-remplit la note ([Prénom], [Nom], [Entreprise], [Titre]). Export CSV de la page. Synchro avec le CRM Outreach (état contacté, envoi des pages).
 // @match        https://www.linkedin.com/sales/*
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
+// @grant        GM_xmlhttpRequest
+// @connect      outreach.clippingatlas.com
+// @connect      127.0.0.1
+// @connect      localhost
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -21,6 +25,8 @@
       'les opportunités sur le marché des pentests. Auriez-vous 20 minutes pour ' +
       'partager votre regard sur le secteur ?',
     contacts: 'Santinu|Eva|Rémi',
+    crmUrl: 'https://outreach.clippingatlas.com',
+    crmToken: '',
   };
   const TOKENS_HELP = 'Tokens : [Prénom] [Nom] [Entreprise] [Titre]';
   const contactList = () => cfg('contacts').split('|').map((s) => s.trim()).filter(Boolean);
@@ -38,6 +44,16 @@
     const v = prompt('Contacts séparés par | — le premier est toi (prospects déjà enregistrés)', cfg('contacts'));
     if (v && v.trim()) GM_setValue('contacts', v.trim());
   });
+  GM_registerMenuCommand('Connecter au CRM (jeton)', () => askCrmToken());
+  GM_registerMenuCommand('URL du CRM', () => {
+    const v = prompt('URL du CRM Outreach', cfg('crmUrl'));
+    if (v && v.trim()) { GM_setValue('crmUrl', v.trim().replace(/\/$/, '')); crm.reset(); }
+  });
+
+  function askCrmToken() {
+    const v = prompt('Colle le jeton affiché dans le CRM (bouton « Extension »)', cfg('crmToken'));
+    if (v !== null) { GM_setValue('crmToken', v.trim()); crm.reset(); syncPage(true); }
+  }
 
   const log = (...a) => console.log('[SN-macro]', ...a);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -207,12 +223,159 @@
     return field;
   }
 
+  // ---- CRM Outreach ----
+  const crm = {
+    state: 'idle', // idle | ok | no-token | error
+    who: '',
+    synced: new Set(),
+    status: new Map(), // id -> {contacte, contacte_par, contacte_le, contact_par, notes}
+    reset() { this.state = 'idle'; this.synced.clear(); this.status.clear(); },
+    request(method, path, body) {
+      const token = cfg('crmToken');
+      if (!token) return Promise.reject(Object.assign(new Error('jeton manquant'), { noToken: true }));
+      return new Promise((resolve, reject) => {
+        GM_xmlhttpRequest({
+          method,
+          url: cfg('crmUrl') + '/api' + path,
+          headers: { Authorization: 'Bearer ' + token, 'content-type': 'application/json' },
+          data: body === undefined ? undefined : JSON.stringify(body),
+          timeout: 15000,
+          onload: (r) => {
+            let data = {};
+            try { data = JSON.parse(r.responseText || '{}'); } catch { /* réponse non JSON */ }
+            if (r.status >= 200 && r.status < 300) resolve(data);
+            else reject(Object.assign(new Error(data.error || `CRM ${r.status}`), { status: r.status }));
+          },
+          onerror: () => reject(new Error('CRM injoignable')),
+          ontimeout: () => reject(new Error('CRM : délai dépassé')),
+        });
+      });
+    },
+  };
+
+  const fmtDay = (iso) => (iso ? new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : '');
+
+  function crmBadge(card, id) {
+    const st = crm.status.get(id);
+    let el = card.querySelector('.sn-macro-crm');
+    if (!el) {
+      const anchorLi = card.querySelector('.' + BTN_CLASS)?.closest('li');
+      if (!anchorLi) return;
+      el = document.createElement('li');
+      el.className = 'sn-macro-crm';
+      anchorLi.before(el);
+    }
+    el.innerHTML = '';
+    if (!st) {
+      if (crm.synced.has(id)) el.append(pill('CRM', 'synced', 'Dans le CRM, personne ne l’a contacté'));
+      return;
+    }
+    if (st.contacte) {
+      el.append(pill(`✓ Contacté par ${st.contacte_par || '?'} · ${fmtDay(st.contacte_le)}`, 'done', st.notes || ''));
+      return;
+    }
+    if (st.contact_par) el.append(pill(`CRM · ${st.contact_par}`, 'assigned', 'Attribué dans le CRM'));
+    else el.append(pill('CRM', 'synced', 'Dans le CRM, personne ne l’a contacté'));
+    const mark = document.createElement('button');
+    mark.type = 'button';
+    mark.className = 'sn-macro-mark';
+    mark.textContent = 'Marquer contacté';
+    mark.title = 'Marque ce prospect comme contacté par toi dans le CRM';
+    mark.addEventListener('click', (e) => { e.stopPropagation(); markContacted(card); });
+    el.append(mark);
+  }
+
+  function pill(text, kind, title) {
+    const s = document.createElement('span');
+    s.className = 'sn-macro-pill ' + kind;
+    s.textContent = text;
+    if (title) s.title = title;
+    return s;
+  }
+
+  async function markContacted(card) {
+    const info = leadInfo(card);
+    const id = leadId(info);
+    if (!id) return;
+    try {
+      const row = await crm.request('POST', '/sync/contacted', { id, lead: info });
+      crm.status.set(id, row);
+      crmBadge(card, id);
+      crmIndicator();
+    } catch (e) {
+      log('markContacted', e);
+      if (e.noToken) askCrmToken(); else alert('CRM : ' + e.message);
+    }
+  }
+
+  const leadId = (info) => (info.profilUrl.match(/\/sales\/lead\/([^,/?]+)/) || [])[1] || null;
+
+  let syncTimer;
+  function scheduleSync() { clearTimeout(syncTimer); syncTimer = setTimeout(() => syncPage(false), 800); }
+
+  async function syncPage(force) {
+    if (!cfg('crmToken')) { crm.state = 'no-token'; crmIndicator(); return; }
+    const cards = [...document.querySelectorAll('[data-x-search-result="LEAD"]')];
+    const entries = cards.map((card) => ({ card, info: leadInfo(card) })).filter((e) => leadId(e.info));
+    if (!entries.length) return;
+    try {
+      const fresh = entries.filter((e) => force || !crm.synced.has(leadId(e.info)));
+      if (fresh.length) {
+        await crm.request('POST', '/sync/upsert', { leads: fresh.map((e) => e.info) });
+        fresh.forEach((e) => crm.synced.add(leadId(e.info)));
+      }
+      const ids = entries.map((e) => leadId(e.info));
+      const r = await crm.request('GET', '/sync/status?ids=' + encodeURIComponent(ids.join(',')));
+      crm.who = r.who;
+      ids.forEach((id) => { if (r.status[id]) crm.status.set(id, r.status[id]); else crm.status.delete(id); });
+      crm.state = 'ok';
+    } catch (e) {
+      log('sync', e);
+      crm.state = e.noToken ? 'no-token' : 'error';
+      crm.lastError = e.message;
+    }
+    entries.forEach((e) => crmBadge(e.card, leadId(e.info)));
+    crmIndicator();
+  }
+
+  function crmIndicator() {
+    let el = document.querySelector('.sn-macro-crm-indicator');
+    if (!el) {
+      el = document.createElement('button');
+      el.type = 'button';
+      el.className = 'sn-macro-crm-indicator';
+      el.addEventListener('click', () => (crm.state === 'no-token' ? askCrmToken() : syncPage(true)));
+      document.body.appendChild(el);
+    }
+    el.dataset.state = crm.state;
+    el.textContent = crm.state === 'ok' ? `CRM ✓ ${crm.who} · ${crm.synced.size} sync`
+      : crm.state === 'no-token' ? 'CRM : coller le jeton'
+        : crm.state === 'error' ? `CRM ✗ ${crm.lastError || ''}` : 'CRM…';
+    el.title = crm.state === 'ok' ? 'Cliquer pour resynchroniser la page' : crm.state === 'no-token' ? 'Jeton disponible dans le CRM, bouton « Extension »' : '';
+  }
+
+  // Après l’ouverture de « Se connecter », le clic sur « Envoyer » marque le prospect contacté.
+  function watchSend(card) {
+    const onClick = (e) => {
+      const btn = e.target.closest('button');
+      if (!btn || !/^Envoyer( l.invitation)?$/i.test(norm(btn.textContent))) return;
+      document.removeEventListener('click', onClick, true);
+      clearTimeout(timer);
+      setTimeout(() => markContacted(card), 500);
+    };
+    document.addEventListener('click', onClick, true);
+    const timer = setTimeout(() => document.removeEventListener('click', onClick, true), 10 * 60 * 1000);
+  }
+
   async function run(card, btn) {
     if (btn.dataset.busy) return;
+    const info = leadInfo(card);
+    const st = crm.status.get(leadId(info));
+    if (st?.contacte && !confirm(`${info.nomComplet} a déjà été contacté par ${st.contacte_par || '?'} le ${fmtDay(st.contacte_le)}.\nContinuer quand même ?`)) return;
     btn.dataset.busy = '1';
     btn.classList.remove('done', 'err');
     const status = (s) => (btn.textContent = s);
-    const message = renderMessage(leadInfo(card));
+    const message = renderMessage(info);
     try {
       status('… liste');
       const saved = await saveToList(card);
@@ -222,6 +385,7 @@
       status('… connexion');
       const fieldsBefore = await openConnect(card);
       await fillNote(message, fieldsBefore);
+      if (cfg('crmToken')) watchSend(card);
 
       status(`✓ ${saved} · note prête, relis et envoie`);
       btn.classList.add('done');
@@ -320,6 +484,28 @@
     }
     .sn-macro-export:hover { background: #004182; }
     .sn-macro-export:disabled { opacity: .5; cursor: default; }
+    .sn-macro-crm-indicator {
+      position: fixed; right: 24px; bottom: 68px; z-index: 99999;
+      padding: 6px 12px; border-radius: 20px; border: 1px solid #c7ccd4;
+      background: #fff; color: #333; font: 500 12px/1.4 -apple-system, system-ui, sans-serif;
+      cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.15); max-width: 320px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .sn-macro-crm-indicator[data-state="ok"] { border-color: #057642; color: #057642; }
+    .sn-macro-crm-indicator[data-state="no-token"] { border-color: #b24020; color: #b24020; }
+    .sn-macro-crm-indicator[data-state="error"] { border-color: #b24020; color: #b24020; }
+    .sn-macro-crm { display: inline-flex; align-items: center; gap: 6px; margin-right: 6px; }
+    .sn-macro-pill {
+      display: inline-block; padding: 3px 9px; border-radius: 12px; font: 600 12px/1.4 -apple-system, system-ui, sans-serif;
+      background: #eef3f8; color: #56687a; white-space: nowrap;
+    }
+    .sn-macro-pill.done { background: #dcf5e6; color: #057642; }
+    .sn-macro-pill.assigned { background: #fdf1dc; color: #915907; }
+    .sn-macro-mark {
+      padding: 3px 9px; border-radius: 12px; border: 1px solid #c7ccd4; background: #fff; color: #56687a;
+      font: 500 12px/1.4 -apple-system, system-ui, sans-serif; cursor: pointer;
+    }
+    .sn-macro-mark:hover { border-color: #057642; color: #057642; }
     .${BTN_CLASS} {
       margin-left: 8px; padding: 5px 12px; border-radius: 16px;
       border: 1px solid #0a66c2; background: #fff; color: #0a66c2;
@@ -334,12 +520,15 @@
   document.head.appendChild(style);
 
   let timer;
-  new MutationObserver(() => {
+  new MutationObserver((muts) => {
+    if (muts.every((m) => m.target.closest?.('.sn-macro-crm, .sn-macro-crm-indicator'))) return;
     clearTimeout(timer);
-    timer = setTimeout(inject, 200);
+    timer = setTimeout(() => { inject(); scheduleSync(); }, 200);
   }).observe(document.body, { childList: true, subtree: true });
   inject();
   injectExportButton();
+  crmIndicator();
+  syncPage(false);
   document.documentElement.dataset.snMacro = 'ready';
   log('prêt — liste cible :', cfg('listName'));
 })();

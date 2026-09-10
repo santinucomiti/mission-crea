@@ -97,6 +97,20 @@ export function mapRow(raw) {
   };
 }
 
+// Objet produit par leadInfo() du userscript → même chemin que le CSV.
+export function fromLeadInfo(l) {
+  if (!l || typeof l !== 'object') return null;
+  return mapRow({
+    'Prénom': l.prenom, 'Nom': l.nom, 'Nom complet': l.nomComplet, 'Degré': l.degre, 'Premium': l.premium,
+    'Titre': l.titre, 'Entreprise': l.entreprise, 'URL entreprise': l.entrepriseUrl, 'Localisation': l.localisation,
+    'Ancienneté poste': l.ancienneteposte, 'Ancienneté entreprise': l.ancienneteEntreprise,
+    'Relations en commun': String(l.relationsCommunes ?? ''), 'Groupes partagés': l.groupesPartages,
+    'Posts récents (30 j)': String(l.postsRecents ?? ''), 'Dernière activité': l.derniereActivite,
+    'Enregistré': l.enregistre, 'Listes': l.listes, 'À propos': l.aPropos, 'URL profil': l.profilUrl,
+    'URL photo': l.photoUrl, 'Contact par': l.contactPar,
+  });
+}
+
 function slug(s) {
   const out = s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   return out.length > 3 ? out : null;

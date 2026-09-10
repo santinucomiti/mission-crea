@@ -142,6 +142,24 @@ function TemplatesModal({ templates, onClose, onChange }) {
   </div></div>`;
 }
 
+function ExtensionModal({ onClose, toast }) {
+  const [token, setToken] = useState('');
+  useEffect(() => { api('/token').then((r) => setToken(r.token)).catch((e) => toast(e.message)); }, []);
+  return html`<div class="modal-bg" onClick=${(e) => e.target === e.currentTarget && onClose()}><div class="modal">
+    <h2>Connecter l’extension Sales Navigator</h2>
+    <p class="muted">Avec ce jeton, l’extension affiche sur chaque prospect Sales Navigator s’il est déjà dans le CRM et qui l’a contacté, envoie les pages visitées ici automatiquement, et marque « contacté » quand tu envoies une invitation.</p>
+    <ol class="muted" style="margin:0;padding-left:20px;display:grid;gap:6px">
+      <li>Installe le userscript <code>salesnav-rssi-connect.user.js</code> dans Violentmonkey.</li>
+      <li>Sur Sales Navigator, clique le bouton flottant « CRM » (ou menu Violentmonkey → « Connecter au CRM ») et colle ce jeton :</li>
+    </ol>
+    <textarea class="message-box mono" readonly value=${token} rows="3" onFocus=${(e) => e.target.select()}></textarea>
+    <div class="foot">
+      <button class="btn" onClick=${onClose}>Fermer</button>
+      <button class="btn primary" onClick=${async () => toast((await copyText(token)) ? 'Jeton copié' : 'Copie impossible')}>Copier le jeton</button>
+    </div>
+  </div></div>`;
+}
+
 function Detail({ p, people, templates, onPatch, onClose, toast }) {
   const [tplId, setTplId] = useState(templates[0]?.id);
   const [msg, setMsg] = useState('');
@@ -308,6 +326,7 @@ function App() {
       <div class="brand"><span class="logo"></span>Outreach <span class="sub">Mission Créa</span></div>
       <input class="search" type="search" placeholder="Rechercher nom, titre, entreprise, ville, notes…" value=${filters.q} onInput=${(e) => set({ q: e.target.value })} />
       <span class="spacer"></span>
+      <button class="btn" onClick=${() => setModal('extension')}>Extension</button>
       <button class="btn" onClick=${() => setModal('templates')}>Modèles</button>
       <button class="btn primary" onClick=${() => setModal('import')}>Importer un CSV</button>
       <div class="who">
@@ -364,6 +383,7 @@ function App() {
     </div>
 
     ${modal === 'import' && html`<${ImportModal} onClose=${() => setModal(null)} onDone=${() => api('/prospects').then(setProspects)} />`}
+    ${modal === 'extension' && html`<${ExtensionModal} onClose=${() => setModal(null)} toast=${toast} />`}
     ${modal === 'templates' && html`<${TemplatesModal} templates=${templates} onClose=${() => setModal(null)} onChange=${() => api('/templates').then(setTemplates)} />`}
     ${toastMsg && html`<div class="toast">${toastMsg}</div>`}
   </div>`;

@@ -4,7 +4,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openDb, upsertProspects, updateProspect } from './db.js';
-import { parseCsv, mapRow } from './csv.js';
+import { parseCsv, mapRow, fromLeadInfo } from './csv.js';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const PUBLIC = join(ROOT, 'public');
@@ -25,6 +25,8 @@ if (!USERS.length || !SECRET) {
 
 const db = openDb(DB_PATH);
 const sign = (name) => createHmac('sha256', SECRET).update('outreach-session-v2:' + name).digest('hex');
+// Jeton longue durée pour l'extension navigateur (Authorization: Bearer <prénom>.<mac>).
+const signToken = (name) => createHmac('sha256', SECRET).update('outreach-token-v1:' + name).digest('hex');
 const loginAttempts = new Map();
 
 const MIME = {
@@ -48,16 +50,21 @@ function cookies(req) {
   );
 }
 
-// Retourne le prénom de la personne connectée, ou null.
-function sessionUser(req) {
-  const c = cookies(req).outreach_session || '';
-  const i = c.lastIndexOf('.');
+function verifyCredential(value, signer) {
+  const i = value.lastIndexOf('.');
   if (i < 1) return null;
-  const name = c.slice(0, i);
-  const mac = c.slice(i + 1);
-  const expected = sign(name);
+  const name = decodeURIComponent(value.slice(0, i));
+  const mac = value.slice(i + 1);
+  const expected = signer(name);
   if (mac.length !== expected.length || !timingSafeEqual(Buffer.from(mac), Buffer.from(expected))) return null;
   return USERS.some((u) => u.name === name) ? name : null;
+}
+
+// Retourne le prénom de la personne connectée (cookie de session ou jeton extension), ou null.
+function sessionUser(req) {
+  const auth = req.headers.authorization || '';
+  if (auth.startsWith('Bearer ')) return verifyCredential(auth.slice(7).trim(), signToken);
+  return verifyCredential(cookies(req).outreach_session || '', sign);
 }
 
 function readBody(req) {
@@ -137,6 +144,40 @@ async function api(req, res, url) {
       who,
       people: db.prepare('SELECT name, color FROM people ORDER BY position').all(),
     });
+  }
+
+  if (path === '/token' && method === 'GET') {
+    return json(res, 200, { who, token: encodeURIComponent(who) + '.' + signToken(who) });
+  }
+
+  // ---- synchro extension ----
+  if (path === '/sync/status' && method === 'GET') {
+    const ids = (url.searchParams.get('ids') || '').split(',').filter(Boolean).slice(0, 200);
+    const out = {};
+    if (ids.length) {
+      const rows = db.prepare(`SELECT id, contacte, contacte_par, contacte_le, contact_par, relance_le, notes FROM prospects WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids);
+      for (const r of rows) out[r.id] = { ...r, notes: r.notes ? r.notes.slice(0, 120) : '' };
+    }
+    return json(res, 200, { who, status: out });
+  }
+  if (path === '/sync/upsert' && method === 'POST') {
+    const { leads } = await readJson(req);
+    const rows = (Array.isArray(leads) ? leads : []).map(fromLeadInfo).filter(Boolean).slice(0, 200);
+    if (!rows.length) return json(res, 400, { error: 'aucun prospect exploitable' });
+    return json(res, 200, upsertProspects(db, rows, 'extension'));
+  }
+  if (path === '/sync/contacted' && method === 'POST') {
+    const { id, lead } = await readJson(req);
+    if (!id) return json(res, 400, { error: 'id requis' });
+    if (!db.prepare('SELECT 1 FROM prospects WHERE id = ?').get(id)) {
+      const row = fromLeadInfo(lead);
+      if (!row || row.id !== id) return json(res, 404, { error: 'prospect inconnu du CRM' });
+      upsertProspects(db, [row], 'extension');
+    }
+    const patch = { contacte: true };
+    const current = db.prepare('SELECT contact_par FROM prospects WHERE id = ?').get(id);
+    if (!current.contact_par) patch.contact_par = who;
+    return json(res, 200, updateProspect(db, id, patch, who));
   }
 
   if (path === '/prospects' && method === 'GET') {
