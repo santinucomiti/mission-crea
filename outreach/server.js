@@ -5,7 +5,7 @@ import { mkdir, readFile, rm, stat } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
 import { basename, extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { openDb, upsertProspects, updateProspect, markContactedByNames, findByProfile, normName } from './db.js';
+import { openDb, upsertProspects, updateProspect, markContactedByNames, findByProfile, normName, withZone, zoneOf } from './db.js';
 import { parseCsv, mapRow, fromLeadInfo } from './csv.js';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
@@ -286,10 +286,10 @@ async function api(req, res, url) {
   if (path === '/export.csv' && method === 'GET') {
     const rows = db.prepare(`
       SELECT p.*, (SELECT COUNT(*) FROM files f WHERE f.prospect_id = p.id) AS nb_fichiers
-      FROM prospects p ORDER BY p.nom_complet COLLATE NOCASE`).all();
+      FROM prospects p ORDER BY p.nom_complet COLLATE NOCASE`).all().map(withZone);
     const cols = [
       ['nom_complet', 'Nom complet'], ['prenom', 'Prénom'], ['nom', 'Nom'], ['titre', 'Titre'], ['entreprise', 'Entreprise'],
-      ['localisation', 'Localisation'], ['degre', 'Degré'],
+      ['localisation', 'Localisation'], ['zone_calc', 'Zone'], ['degre', 'Degré'],
       ['contacte', 'Contacté'], ['contacte_le', 'Contacté le'],
       ['interviewe', 'Interviewé'], ['interviewe_le', 'Interviewé le'],
       ['relance_le', 'Relance le'], ['notes', 'Notes'], ['nb_fichiers', 'Fichiers'],
@@ -299,7 +299,7 @@ async function api(req, res, url) {
       ['entreprise_url', 'URL entreprise'], ['imported_at', 'Importé le'], ['source_file', 'Source'],
     ];
     const cell = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
-    const fmt = (k, v) => (k === 'contacte' || k === 'interviewe' ? (v ? 'oui' : 'non') : /_le$|_at$/.test(k) ? (v || '').slice(0, 10) : v);
+    const fmt = (k, v) => (k === 'zone_calc' ? ({ FR: 'France', INT: 'International' }[v] || '') : k === 'contacte' || k === 'interviewe' ? (v ? 'oui' : 'non') : /_le$|_at$/.test(k) ? (v || '').slice(0, 10) : v);
     const lines = [cols.map(([, h]) => cell(h)).join(';'), ...rows.map((r) => cols.map(([k]) => cell(fmt(k, r[k]))).join(';'))];
     res.writeHead(200, {
       'content-type': 'text/csv; charset=utf-8',
@@ -310,14 +310,14 @@ async function api(req, res, url) {
   }
 
   if (path === '/prospects' && method === 'GET') {
-    return json(res, 200, db.prepare('SELECT * FROM prospects ORDER BY updated_at DESC LIMIT 5000').all());
+    return json(res, 200, db.prepare('SELECT * FROM prospects ORDER BY updated_at DESC LIMIT 5000').all().map(withZone));
   }
 
   let m;
   if ((m = path.match(/^\/prospects\/([^/]+)$/)) && method === 'PATCH') {
     const patch = await readJson(req);
     try {
-      const row = updateProspect(db, decodeURIComponent(m[1]), patch, who);
+      const row = withZone(updateProspect(db, decodeURIComponent(m[1]), patch, who) || {});
       return row ? json(res, 200, row) : json(res, 404, { error: 'prospect introuvable' });
     } catch (e) {
       return json(res, 400, { error: e.message });

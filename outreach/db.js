@@ -57,6 +57,7 @@ export function normName(s) {
 function migrate(db) {
   const cols = db.prepare('PRAGMA table_info(prospects)').all().map((c) => c.name);
   if (!cols.includes('nom_norm')) db.exec('ALTER TABLE prospects ADD COLUMN nom_norm TEXT');
+  if (!cols.includes('zone')) db.exec('ALTER TABLE prospects ADD COLUMN zone TEXT');
   if (!cols.includes('contexte_linkedin')) {
     db.exec('ALTER TABLE prospects ADD COLUMN contexte_linkedin TEXT');
     db.exec('ALTER TABLE prospects ADD COLUMN contexte_maj TEXT');
@@ -194,7 +195,17 @@ export function findByProfile(db, { url, memberId, nomComplet }) {
   return null;
 }
 
-export const EDITABLE = ['contacte', 'interviewe', 'notes', 'relance_le', 'linkedin_url'];
+export const EDITABLE = ['contacte', 'interviewe', 'notes', 'relance_le', 'linkedin_url', 'zone'];
+
+// Zone déduite de la localisation Sales Navigator ; `zone` en base est une surcharge manuelle (FR / INT).
+const FR_PLACES = /\bFrance\b|Île-de-France|Ile-de-France|\bParis\b|\bLyon\b|\bMarseille\b|\bBordeaux\b|\bLille\b|\bToulouse\b|\bNantes\b|\bStrasbourg\b|\bRennes\b|\bNice\b|\bMontpellier\b|\bGrenoble\b|\bRouen\b|\bReims\b|\bDijon\b|\bTours\b|\bOrléans\b|\bNancy\b|\bMetz\b|\bAngers\b|\bCaen\b|\bBrest\b|\bLe Havre\b|\bToulon\b|\bNîmes\b|\bClermont-Ferrand\b|\bLimoges\b|\bPerpignan\b|\bAix-en-Provence\b|\bAnnecy\b|\bSophia Antipolis\b|Auvergne-Rhône-Alpes|Occitanie|Bretagne|Normandie|Provence-Alpes|Nouvelle-Aquitaine|Hauts-de-France|Grand Est|Pays de la Loire|Bourgogne-Franche-Comté|Centre-Val de Loire|\bCorse\b|Guadeloupe|Martinique|La Réunion|\bRéunion\b|Guyane|Mayotte|Nouvelle-Calédonie|Polynésie/i;
+export function zoneOf(p) {
+  if (p.zone === 'FR' || p.zone === 'INT') return p.zone;
+  const loc = (p.localisation || '').trim();
+  if (!loc) return '';
+  return FR_PLACES.test(loc) ? 'FR' : 'INT';
+}
+export const withZone = (p) => ({ ...p, zone_calc: zoneOf(p) });
 
 export function updateProspect(db, id, patch, who) {
   const current = db.prepare('SELECT * FROM prospects WHERE id = ?').get(id);
@@ -215,6 +226,7 @@ export function updateProspect(db, id, patch, who) {
         params.contacte_par = value ? who : null;
       }
     }
+    if (field === 'zone') value = value === 'FR' || value === 'INT' ? value : null;
     if (field === 'interviewe') {
       value = value ? 1 : 0;
       if (value !== current.interviewe) { sets.push('interviewe_le = @interviewe_le'); params.interviewe_le = value ? now : null; }

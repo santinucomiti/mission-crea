@@ -286,6 +286,13 @@ function Detail({ p, people, templates, onPatch, onClose, toast }) {
         <input type="checkbox" checked=${!!p.interviewe} onChange=${(e) => patch({ interviewe: e.target.checked })} />
         <span><b>Interviewé</b> <span class="muted tiny">entretien réalisé${p.interviewe && p.interviewe_le ? ' le ' + fmtDateTime(p.interviewe_le) : ''}</span></span>
       </label>
+      <div class="zone-row">
+        <span class="muted tiny">Zone</span>
+        <div class="seg">
+          ${[['FR', 'France'], ['INT', 'International']].map(([v, l]) => html`<button class=${'seg-btn' + (p.zone_calc === v ? ' active' : '')} onClick=${() => patch({ zone: p.zone === v ? '' : v })} title=${p.zone ? 'Forcée à la main — cliquer pour revenir à la déduction' : 'Déduite de la localisation — cliquer pour forcer'}>${l}</button>`)}
+        </div>
+        <span class="muted tiny">${p.zone ? 'forcée' : p.zone_calc ? 'déduite de « ' + p.localisation + ' »' : 'localisation inconnue'}</span>
+      </div>
       <div class="grid2">
         <label class="field">Relance le
           <input type="date" value=${p.relance_le || ''} onChange=${(e) => patch({ relance_le: e.target.value })} />
@@ -329,7 +336,7 @@ function App() {
   const [who, setWho] = useState('');
   const [prospects, setProspects] = useState([]);
   const [templates, setTemplates] = useState([]);
-  const [filters, setFilters] = useState({ q: '', contacte: 'all', relance: false, degre: 'all' });
+  const [filters, setFilters] = useState({ q: '', contacte: 'all', relance: false, degre: 'all', zone: 'all' });
   const [selectedId, setSelectedId] = useState(null);
   const [modal, setModal] = useState(null);
   const [toastMsg, setToastMsg] = useState('');
@@ -367,10 +374,11 @@ function App() {
   };
 
   const counts = useMemo(() => {
-    const c = { total: prospects.length, contacte: 0, aContacter: 0, interviewe: 0, relance: 0, degre: {} };
+    const c = { total: prospects.length, contacte: 0, aContacter: 0, interviewe: 0, relance: 0, degre: {}, zone: { FR: 0, INT: 0, '': 0 } };
     for (const p of prospects) {
       if (p.contacte) c.contacte++; else c.aContacter++;
       if (p.interviewe) c.interviewe++;
+      c.zone[p.zone_calc || ''] = (c.zone[p.zone_calc || ''] || 0) + 1;
       const rs = relanceState(p);
       if (rs === 'due' || rs === 'overdue') c.relance++;
       if (p.degre) c.degre[p.degre] = (c.degre[p.degre] || 0) + 1;
@@ -385,12 +393,13 @@ function App() {
         if (filters.contacte === 'oui' && !p.contacte) return false;
         if (filters.contacte === 'non' && p.contacte) return false;
         if (filters.contacte === 'interviewe' && !p.interviewe) return false;
+        if (filters.zone !== 'all' && (p.zone_calc || '') !== filters.zone) return false;
         if (filters.degre !== 'all' && p.degre !== filters.degre) return false;
         if (filters.relance) { const rs = relanceState(p); if (rs !== 'due' && rs !== 'overdue') return false; }
         if (q && !norm([p.nom_complet, p.titre, p.entreprise, p.localisation, p.notes].join(' ')).includes(q)) return false;
         return true;
       })
-      .sort((a, b) => (a.contacte - b.contacte) || (a.interviewe - b.interviewe) || (relanceRank(a) - relanceRank(b)) || a.nom_complet.localeCompare(b.nom_complet, 'fr'));
+      .sort((a, b) => (a.contacte - b.contacte) || (a.interviewe - b.interviewe) || (zoneRank(a) - zoneRank(b)) || (relanceRank(a) - relanceRank(b)) || a.nom_complet.localeCompare(b.nom_complet, 'fr'));
   }, [prospects, filters]);
 
   const selected = prospects.find((p) => p.id === selectedId);
@@ -423,6 +432,12 @@ function App() {
         <button class=${'row' + (filters.contacte === 'interviewe' && !filters.relance ? ' active' : '')} onClick=${() => set({ contacte: 'interviewe', relance: false })}>Interviewés <span class="n">${counts.interviewe}</span></button>
         <button class=${'row' + (filters.relance ? ' active' : '')} onClick=${() => set({ relance: !filters.relance, contacte: 'all' })}>Relances dues <span class="n">${counts.relance}</span></button>
 
+        <h3>Zone</h3>
+        <button class=${'row' + (filters.zone === 'all' ? ' active' : '')} onClick=${() => set({ zone: 'all' })}>Toutes <span class="n">${counts.total}</span></button>
+        <button class=${'row' + (filters.zone === 'FR' ? ' active' : '')} onClick=${() => set({ zone: 'FR' })}>France <span class="n">${counts.zone.FR}</span></button>
+        <button class=${'row' + (filters.zone === 'INT' ? ' active' : '')} onClick=${() => set({ zone: 'INT' })}>International <span class="n">${counts.zone.INT}</span></button>
+        ${counts.zone[''] > 0 && html`<button class=${'row' + (filters.zone === '' ? ' active' : '')} onClick=${() => set({ zone: '' })}>Non renseignée <span class="n">${counts.zone['']}</span></button>`}
+
         <h3>Degré</h3>
         <button class=${'row' + (filters.degre === 'all' ? ' active' : '')} onClick=${() => set({ degre: 'all' })}>Tous</button>
         ${Object.keys(counts.degre).sort().map((d) => html`<button class=${'row' + (filters.degre === d ? ' active' : '')} onClick=${() => set({ degre: d })}>${d} <span class="n">${counts.degre[d]}</span></button>`)}
@@ -431,7 +446,7 @@ function App() {
       <main class="main">
         <div class="list-head">
           <span class="count">${visible.length} prospect${visible.length > 1 ? 's' : ''}</span>
-          ${(filters.q || filters.contacte !== 'all' || filters.degre !== 'all' || filters.relance) && html`<button class="btn ghost small" onClick=${() => setFilters({ q: '', contacte: 'all', relance: false, degre: 'all' })}>Effacer les filtres</button>`}
+          ${(filters.q || filters.contacte !== 'all' || filters.degre !== 'all' || filters.zone !== 'all' || filters.relance) && html`<button class="btn ghost small" onClick=${() => setFilters({ q: '', contacte: 'all', relance: false, degre: 'all', zone: 'all' })}>Effacer les filtres</button>`}
         </div>
         ${prospects.length === 0
           ? html`<div class="empty"><h2>Aucun prospect pour l’instant</h2><p>Importe les CSV exportés depuis Sales Navigator avec le bouton « ⬇ CSV page ».</p><button class="btn primary" onClick=${() => setModal('import')}>Importer un CSV</button></div>`
@@ -450,7 +465,7 @@ function App() {
                     ${p.notes && html`<span title=${p.notes}>📝 note</span>`}
                   </div>
                 </div>
-                <div class="chips"><${ContactChip} p=${p} /><${RelanceChip} p=${p} /></div>
+                <div class="chips"><${ContactChip} p=${p} />${p.zone_calc === 'INT' && html`<span class="chip intl" title=${p.localisation}>🌍 International</span>`}<${RelanceChip} p=${p} /></div>
               </article>`)}</div>`}
       </main>
 
@@ -463,6 +478,8 @@ function App() {
     ${toastMsg && html`<div class="toast">${toastMsg}</div>`}
   </div>`;
 }
+
+const zoneRank = (p) => (p.zone_calc === 'FR' ? 0 : p.zone_calc === 'INT' ? 2 : 1);
 
 function relanceRank(p) {
   const rs = relanceState(p);

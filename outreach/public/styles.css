@@ -76,6 +76,12 @@ label.field > * { font-size: 14px; color: var(--ink); font-weight: 400; }
 .contact-toggle.interview:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
 .contact-toggle.interview input { accent-color: var(--accent); }
 .chip.later { background: var(--surface-2); border-color: var(--line); color: var(--ink-2); }
+.chip.intl { background: var(--surface-2); border-color: var(--line); color: var(--ink-2); }
+.zone-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.seg-btn { padding: 4px 10px; border: 0; background: var(--surface); color: var(--ink-2); cursor: pointer; font-size: 13px; }
+.seg-btn + .seg-btn { border-left: 1px solid var(--line); }
+.seg-btn.active { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
 .chip.person { background: var(--surface-2); border-color: var(--line); }
 .contact-toggle { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); cursor: pointer; background: var(--surface-2); }
 .contact-toggle input { width: 20px; height: 20px; accent-color: var(--done); margin: 0; }
