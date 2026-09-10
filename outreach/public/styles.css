@@ -72,6 +72,9 @@ label.field > * { font-size: 14px; color: var(--ink); font-weight: 400; }
 }
 .chip.todo { background: var(--surface-2); border-color: var(--line); color: var(--ink-2); }
 .chip.done { background: var(--done-soft); color: var(--done); border-color: transparent; }
+.chip.interviewed { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.contact-toggle.interview:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.contact-toggle.interview input { accent-color: var(--accent); }
 .chip.later { background: var(--surface-2); border-color: var(--line); color: var(--ink-2); }
 .chip.person { background: var(--surface-2); border-color: var(--line); }
 .contact-toggle { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); cursor: pointer; background: var(--surface-2); }

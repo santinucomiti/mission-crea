@@ -236,7 +236,7 @@ async function api(req, res, url) {
     const ids = (url.searchParams.get('ids') || '').split(',').filter(Boolean).slice(0, 200);
     const out = {};
     if (ids.length) {
-      const rows = db.prepare(`SELECT id, contacte, contacte_par, contacte_le, contact_par, relance_le, notes FROM prospects WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids);
+      const rows = db.prepare(`SELECT id, contacte, contacte_par, contacte_le, interviewe, interviewe_le, contact_par, relance_le, notes FROM prospects WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids);
       for (const r of rows) out[r.id] = { ...r, notes: r.notes ? r.notes.slice(0, 120) : '' };
     }
     return json(res, 200, { who, status: out });
@@ -269,6 +269,7 @@ async function api(req, res, url) {
       ['nom_complet', 'Nom complet'], ['prenom', 'Prénom'], ['nom', 'Nom'], ['titre', 'Titre'], ['entreprise', 'Entreprise'],
       ['localisation', 'Localisation'], ['degre', 'Degré'], ['contact_par', 'Contact par'],
       ['contacte', 'Contacté'], ['contacte_le', 'Contacté le'],
+      ['interviewe', 'Interviewé'], ['interviewe_le', 'Interviewé le'],
       ['relance_le', 'Relance le'], ['notes', 'Notes'], ['nb_fichiers', 'Fichiers'],
       ['relations_communes', 'Relations en commun'], ['anciennete_poste', 'Ancienneté poste'],
       ['anciennete_entreprise', 'Ancienneté entreprise'], ['derniere_activite', 'Dernière activité'],
@@ -276,7 +277,7 @@ async function api(req, res, url) {
       ['entreprise_url', 'URL entreprise'], ['imported_at', 'Importé le'], ['source_file', 'Source'],
     ];
     const cell = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
-    const fmt = (k, v) => (k === 'contacte' ? (v ? 'oui' : 'non') : k === 'contacte_le' || k === 'imported_at' ? (v || '').slice(0, 10) : v);
+    const fmt = (k, v) => (k === 'contacte' || k === 'interviewe' ? (v ? 'oui' : 'non') : /_le$|_at$/.test(k) ? (v || '').slice(0, 10) : v);
     const lines = [cols.map(([, h]) => cell(h)).join(';'), ...rows.map((r) => cols.map(([k]) => cell(fmt(k, r[k]))).join(';'))];
     res.writeHead(200, {
       'content-type': 'text/csv; charset=utf-8',
@@ -314,7 +315,10 @@ async function api(req, res, url) {
       return json(res, 415, { error: 'seuls les enregistrements audio sont acceptés (.mp3, .m4a, .wav, .mp4…)' });
     }
     try {
-      return json(res, 200, await saveUpload(req, prospectId, filename, who));
+      const row = await saveUpload(req, prospectId, filename, who);
+      // Un enregistrement déposé = entretien réalisé.
+      updateProspect(db, prospectId, { interviewe: true }, who);
+      return json(res, 200, row);
     } catch (e) {
       return json(res, 413, { error: e.message });
     }

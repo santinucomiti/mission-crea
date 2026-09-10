@@ -57,6 +57,10 @@ export function normName(s) {
 function migrate(db) {
   const cols = db.prepare('PRAGMA table_info(prospects)').all().map((c) => c.name);
   if (!cols.includes('nom_norm')) db.exec('ALTER TABLE prospects ADD COLUMN nom_norm TEXT');
+  if (!cols.includes('interviewe')) {
+    db.exec('ALTER TABLE prospects ADD COLUMN interviewe INTEGER NOT NULL DEFAULT 0');
+    db.exec('ALTER TABLE prospects ADD COLUMN interviewe_le TEXT');
+  }
   db.exec('CREATE INDEX IF NOT EXISTS prospects_nom_norm ON prospects(nom_norm)');
   const missing = db.prepare('SELECT id, nom_complet FROM prospects WHERE nom_norm IS NULL').all();
   const upd = db.prepare('UPDATE prospects SET nom_norm = ? WHERE id = ?');
@@ -166,7 +170,7 @@ export function markContactedByNames(db, names, who) {
   return result;
 }
 
-export const EDITABLE = ['contact_par', 'contacte', 'notes', 'relance_le', 'linkedin_url'];
+export const EDITABLE = ['contact_par', 'contacte', 'interviewe', 'notes', 'relance_le', 'linkedin_url'];
 
 export function updateProspect(db, id, patch, who) {
   const current = db.prepare('SELECT * FROM prospects WHERE id = ?').get(id);
@@ -174,6 +178,8 @@ export function updateProspect(db, id, patch, who) {
   const now = new Date().toISOString();
   const sets = [];
   const params = { id, now };
+  // Un entretien réalisé implique un contact : on coche « contacté » en même temps.
+  if (patch.interviewe && !current.contacte) patch = { ...patch, contacte: true };
   for (const field of EDITABLE) {
     if (!(field in patch)) continue;
     let value = patch[field];
@@ -184,6 +190,10 @@ export function updateProspect(db, id, patch, who) {
         params.contacte_le = value ? now : null;
         params.contacte_par = value ? who : null;
       }
+    }
+    if (field === 'interviewe') {
+      value = value ? 1 : 0;
+      if (value !== current.interviewe) { sets.push('interviewe_le = @interviewe_le'); params.interviewe_le = value ? now : null; }
     }
     if (value === '') value = null;
     if ((current[field] ?? null) === (value ?? null)) continue;

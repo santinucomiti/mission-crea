@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sales Navigator — liste + Se connecter
 // @namespace    micoti.salesnav
-// @version      0.6.0
+// @version      0.6.1
 // @description  Par prospect : ouvre « Se connecter », pré-remplit la note ([Prénom], [Nom], [Entreprise], [Titre]) et marque « contacté » dans le CRM Outreach dès le clic. Badges CRM, envoi auto des pages, export CSV.
 // @match        https://www.linkedin.com/sales/*
 // @grant        GM_getValue
@@ -238,6 +238,10 @@
       if (crm.synced.has(id)) el.append(pill('CRM', 'synced', 'Dans le CRM, personne ne l’a contacté'));
       return;
     }
+    if (st.interviewe) {
+      el.append(pill(`🎙 Interviewé${st.interviewe_le ? ' · ' + fmtDay(st.interviewe_le) : ''}`, 'interviewed', st.notes || ''));
+      return;
+    }
     if (st.contacte) {
       el.append(pill(`✓ Contacté${st.contacte_le ? ' · ' + fmtDay(st.contacte_le) : ''}`, 'done', st.notes || ''));
       return;
@@ -453,6 +457,7 @@
       background: #eef3f8; color: #56687a; white-space: nowrap;
     }
     .sn-macro-pill.done { background: #dcf5e6; color: #057642; }
+    .sn-macro-pill.interviewed { background: #0a66c2; color: #fff; }
     .sn-macro-pill.assigned { background: #fdf1dc; color: #915907; }
     .sn-macro-mark {
       padding: 3px 9px; border-radius: 12px; border: 1px solid #c7ccd4; background: #fff; color: #56687a;

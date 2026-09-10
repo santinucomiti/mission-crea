@@ -59,6 +59,7 @@ function PersonChip({ name, people }) {
 }
 
 function ContactChip({ p }) {
+  if (p.interviewe) return html`<span class="chip interviewed">🎙 Interviewé</span>`;
   return p.contacte
     ? html`<span class="chip done">✓ Contacté</span>`
     : html`<span class="chip todo">À contacter</span>`;
@@ -272,6 +273,10 @@ function Detail({ p, people, templates, onPatch, onClose, toast }) {
         <input type="checkbox" checked=${!!p.contacte} onChange=${(e) => patch({ contacte: e.target.checked })} />
         <span><b>Contacté</b>${p.contacte && p.contacte_le ? html` <span class="muted tiny">le ${fmtDateTime(p.contacte_le)}</span>` : ''}</span>
       </label>
+      <label class="contact-toggle interview">
+        <input type="checkbox" checked=${!!p.interviewe} onChange=${(e) => patch({ interviewe: e.target.checked })} />
+        <span><b>Interviewé</b> <span class="muted tiny">entretien réalisé${p.interviewe && p.interviewe_le ? ' le ' + fmtDateTime(p.interviewe_le) : ''}</span></span>
+      </label>
       <div class="grid2">
         <label class="field">Contact par
           <select value=${p.contact_par || ''} onChange=${(e) => patch({ contact_par: e.target.value })}>
@@ -361,9 +366,10 @@ function App() {
   };
 
   const counts = useMemo(() => {
-    const c = { total: prospects.length, contacte: 0, aContacter: 0, relance: 0, person: {}, degre: {} };
+    const c = { total: prospects.length, contacte: 0, aContacter: 0, interviewe: 0, relance: 0, person: {}, degre: {} };
     for (const p of prospects) {
       if (p.contacte) c.contacte++; else c.aContacter++;
+      if (p.interviewe) c.interviewe++;
       const rs = relanceState(p);
       if (rs === 'due' || rs === 'overdue') c.relance++;
       const k = p.contact_par || '';
@@ -379,13 +385,14 @@ function App() {
       .filter((p) => {
         if (filters.contacte === 'oui' && !p.contacte) return false;
         if (filters.contacte === 'non' && p.contacte) return false;
+        if (filters.contacte === 'interviewe' && !p.interviewe) return false;
         if (filters.person !== 'all' && (p.contact_par || '') !== filters.person) return false;
         if (filters.degre !== 'all' && p.degre !== filters.degre) return false;
         if (filters.relance) { const rs = relanceState(p); if (rs !== 'due' && rs !== 'overdue') return false; }
         if (q && !norm([p.nom_complet, p.titre, p.entreprise, p.localisation, p.notes].join(' ')).includes(q)) return false;
         return true;
       })
-      .sort((a, b) => (a.contacte - b.contacte) || (relanceRank(a) - relanceRank(b)) || a.nom_complet.localeCompare(b.nom_complet, 'fr'));
+      .sort((a, b) => (a.contacte - b.contacte) || (a.interviewe - b.interviewe) || (relanceRank(a) - relanceRank(b)) || a.nom_complet.localeCompare(b.nom_complet, 'fr'));
   }, [prospects, filters]);
 
   const selected = prospects.find((p) => p.id === selectedId);
@@ -415,6 +422,7 @@ function App() {
         <button class=${'row' + (filters.contacte === 'all' && !filters.relance ? ' active' : '')} onClick=${() => set({ contacte: 'all', relance: false })}>Tous <span class="n">${counts.total}</span></button>
         <button class=${'row' + (filters.contacte === 'non' && !filters.relance ? ' active' : '')} onClick=${() => set({ contacte: 'non', relance: false })}>À contacter <span class="n">${counts.aContacter}</span></button>
         <button class=${'row' + (filters.contacte === 'oui' && !filters.relance ? ' active' : '')} onClick=${() => set({ contacte: 'oui', relance: false })}>Contactés <span class="n">${counts.contacte}</span></button>
+        <button class=${'row' + (filters.contacte === 'interviewe' && !filters.relance ? ' active' : '')} onClick=${() => set({ contacte: 'interviewe', relance: false })}>Interviewés <span class="n">${counts.interviewe}</span></button>
         <button class=${'row' + (filters.relance ? ' active' : '')} onClick=${() => set({ relance: !filters.relance, contacte: 'all' })}>Relances dues <span class="n">${counts.relance}</span></button>
 
         <h3>Contact par</h3>
