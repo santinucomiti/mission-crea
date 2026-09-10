@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Sales Navigator — liste + Se connecter
 // @namespace    micoti.salesnav
-// @version      0.4.0
-// @description  Par prospect : ajoute à la liste cible, ouvre « Se connecter », pré-remplit la note ([Prénom], [Nom], [Entreprise], [Titre]). Export CSV de la page. Synchro avec le CRM Outreach (état contacté, envoi des pages).
+// @version      0.5.0
+// @description  Par prospect : ouvre « Se connecter », pré-remplit la note ([Prénom], [Nom], [Entreprise], [Titre]) et marque « contacté » dans le CRM Outreach à l'envoi. Badges CRM, envoi auto des pages, export CSV.
 // @match        https://www.linkedin.com/sales/*
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -19,7 +19,6 @@
   document.documentElement.dataset.snMacro = 'loading';
 
   const DEFAULTS = {
-    listName: 'RSSI',
     message:
       'Bonjour [Prénom], avec deux étudiants de X-HEC Entrepreneurs, nous analysons ' +
       'les opportunités sur le marché des pentests. Auriez-vous 20 minutes pour ' +
@@ -32,10 +31,6 @@
   const contactList = () => cfg('contacts').split('|').map((s) => s.trim()).filter(Boolean);
   const cfg = (key) => GM_getValue(key, DEFAULTS[key]);
 
-  GM_registerMenuCommand('Modifier la liste cible', () => {
-    const v = prompt('Nom exact de la liste Sales Navigator', cfg('listName'));
-    if (v && v.trim()) GM_setValue('listName', v.trim());
-  });
   GM_registerMenuCommand('Modifier le message', () => {
     const v = prompt('Message — ' + TOKENS_HELP, cfg('message'));
     if (v && v.trim()) GM_setValue('message', v.trim());
@@ -144,33 +139,6 @@
     return el.closest('button, [role^="menuitem"], [role="option"], a, label') || el;
   }
 
-  async function saveToList(card) {
-    const listName = cfg('listName');
-    const alreadyRe = new RegExp('ajouté\\(e\\) à la liste ' + esc(listName) + '(\\s|$)');
-    if (alreadyRe.test(norm(card.textContent))) return `déjà dans ${listName}`;
-
-    const trigger = card.querySelector('button[data-x--save-menu-trigger]');
-    if (!trigger) throw new Error('bouton Enregistrer introuvable');
-    trigger.click();
-    const menu = await waitFor(() => openedMenu(trigger));
-    if (!menu) throw new Error('menu des listes non ouvert');
-    await jitter(300, 600);
-
-    const item = findItem(menu, new RegExp('^' + esc(listName) + '\\s*(\\(\\d+\\))?$'));
-    if (!item) {
-      closeMenus();
-      throw new Error(`liste « ${listName} » absente du menu`);
-    }
-    const target = clickable(item);
-    if (target.getAttribute('aria-checked') === 'true' || target.querySelector('input:checked')) {
-      closeMenus();
-      return `déjà dans ${listName}`;
-    }
-    target.click();
-    await waitFor(() => !openedMenu(trigger), { timeout: 3000 });
-    return `ajouté à ${listName}`;
-  }
-
   function allFields() {
     return [...document.querySelectorAll('textarea, [contenteditable="true"]')].filter(visible);
   }
@@ -271,7 +239,7 @@
       return;
     }
     if (st.contacte) {
-      el.append(pill(`✓ Contacté par ${st.contacte_par || '?'} · ${fmtDay(st.contacte_le)}`, 'done', st.notes || ''));
+      el.append(pill(`✓ Contacté${st.contacte_le ? ' · ' + fmtDay(st.contacte_le) : ''}`, 'done', st.notes || ''));
       return;
     }
     if (st.contact_par) el.append(pill(`CRM · ${st.contact_par}`, 'assigned', 'Attribué dans le CRM'));
@@ -371,23 +339,20 @@
     if (btn.dataset.busy) return;
     const info = leadInfo(card);
     const st = crm.status.get(leadId(info));
-    if (st?.contacte && !confirm(`${info.nomComplet} a déjà été contacté par ${st.contacte_par || '?'} le ${fmtDay(st.contacte_le)}.\nContinuer quand même ?`)) return;
+    if (st?.contacte && !confirm(`${info.nomComplet} a déjà été contacté${st.contacte_le ? ' le ' + fmtDay(st.contacte_le) : ''}.\nContinuer quand même ?`)) return;
+    if (!cfg('crmToken')) askCrmToken();
     btn.dataset.busy = '1';
     btn.classList.remove('done', 'err');
     const status = (s) => (btn.textContent = s);
     const message = renderMessage(info);
     try {
-      status('… liste');
-      const saved = await saveToList(card);
-      status('✓ ' + saved);
-      await jitter(500, 900);
-
       status('… connexion');
       const fieldsBefore = await openConnect(card);
       await fillNote(message, fieldsBefore);
-      if (cfg('crmToken')) watchSend(card);
+      const tracked = !!cfg('crmToken');
+      if (tracked) watchSend(card);
 
-      status(`✓ ${saved} · note prête, relis et envoie`);
+      status(tracked ? '✓ note prête · « Envoyer » marquera contacté' : '✓ note prête, relis et envoie');
       btn.classList.add('done');
     } catch (e) {
       log(e);
@@ -409,8 +374,8 @@
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = BTN_CLASS;
-      btn.textContent = `⚡ ${cfg('listName')} + connecter`;
-      btn.title = 'Ajoute à la liste, ouvre « Se connecter » et pré-remplit la note';
+      btn.textContent = '⚡ Connecter';
+      btn.title = 'Ouvre « Se connecter », pré-remplit la note ; le clic sur Envoyer marque contacté dans le CRM';
       btn.addEventListener('click', () => run(card, btn));
       li.appendChild(btn);
       anchorLi.after(li);

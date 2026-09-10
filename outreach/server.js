@@ -1,9 +1,11 @@
 import http from 'node:http';
-import { createHmac, timingSafeEqual } from 'node:crypto';
-import { readFile, stat } from 'node:fs/promises';
-import { extname, join, normalize, resolve } from 'node:path';
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createReadStream, createWriteStream } from 'node:fs';
+import { mkdir, readFile, rm, stat } from 'node:fs/promises';
+import { pipeline } from 'node:stream/promises';
+import { basename, extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { openDb, upsertProspects, updateProspect } from './db.js';
+import { openDb, upsertProspects, updateProspect, markContactedByNames } from './db.js';
 import { parseCsv, mapRow, fromLeadInfo } from './csv.js';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
@@ -16,7 +18,9 @@ const USERS = (process.env.OUTREACH_USERS || '')
   .filter((u) => u.name && u.password);
 const SECRET = process.env.OUTREACH_SECRET;
 const DB_PATH = resolve(ROOT, process.env.DB_PATH || './data/outreach.sqlite');
+const FILES_DIR = resolve(ROOT, process.env.FILES_DIR || './data/files');
 const MAX_BODY = 20 * 1024 * 1024;
+const MAX_FILE = Number(process.env.MAX_FILE_MB || 500) * 1024 * 1024;
 
 if (!USERS.length || !SECRET) {
   console.error('OUTREACH_USERS et OUTREACH_SECRET sont requis (voir .env.example)');
@@ -38,6 +42,53 @@ const MIME = {
   '.ico': 'image/x-icon',
   '.woff2': 'font/woff2',
 };
+
+const safeName = (name) => basename(name || 'fichier').replace(/[^\p{L}\p{N}._ -]/gu, '_').slice(0, 150) || 'fichier';
+
+// Upload : le corps de la requête est écrit tel quel sur le disque (pas de multipart, pas de buffer mémoire).
+async function saveUpload(req, prospectId, filename, who) {
+  const id = randomUUID();
+  const dir = join(FILES_DIR, prospectId);
+  await mkdir(dir, { recursive: true });
+  const path = join(dir, id + extname(filename).toLowerCase().slice(0, 10));
+  let size = 0;
+  req.on('data', (c) => { size += c.length; if (size > MAX_FILE) req.destroy(new Error('fichier trop volumineux')); });
+  try {
+    await pipeline(req, createWriteStream(path));
+  } catch (e) {
+    await rm(path, { force: true });
+    throw e;
+  }
+  const row = { id, prospect_id: prospectId, filename, mime: req.headers['content-type'] || 'application/octet-stream', size, uploaded_by: who, uploaded_at: new Date().toISOString() };
+  db.prepare('INSERT INTO files(id, prospect_id, filename, mime, size, uploaded_by, uploaded_at) VALUES (@id, @prospect_id, @filename, @mime, @size, @uploaded_by, @uploaded_at)').run(row);
+  return row;
+}
+
+function filePath(row) {
+  return join(FILES_DIR, row.prospect_id, row.id + extname(row.filename).toLowerCase().slice(0, 10));
+}
+
+// Lecture avec Range (nécessaire pour avancer/reculer dans un audio).
+async function sendFile(req, res, row) {
+  const path = filePath(row);
+  const { size } = await stat(path);
+  const headers = {
+    'content-type': row.mime || 'application/octet-stream',
+    'accept-ranges': 'bytes',
+    'content-disposition': `inline; filename*=UTF-8''${encodeURIComponent(row.filename)}`,
+    'cache-control': 'private, max-age=3600',
+  };
+  const range = (req.headers.range || '').match(/^bytes=(\d*)-(\d*)$/);
+  if (range && (range[1] || range[2])) {
+    const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
+    const end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
+    if (start >= size || start > end) { res.writeHead(416, { 'content-range': `bytes */${size}` }); return res.end(); }
+    res.writeHead(206, { ...headers, 'content-range': `bytes ${start}-${end}/${size}`, 'content-length': end - start + 1 });
+    return pipeline(createReadStream(path, { start, end }), res);
+  }
+  res.writeHead(200, { ...headers, 'content-length': size });
+  return pipeline(createReadStream(path), res);
+}
 
 const json = (res, status, body) => {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
@@ -180,6 +231,31 @@ async function api(req, res, url) {
     return json(res, 200, updateProspect(db, id, patch, who));
   }
 
+  if (path === '/export.csv' && method === 'GET') {
+    const rows = db.prepare(`
+      SELECT p.*, (SELECT COUNT(*) FROM files f WHERE f.prospect_id = p.id) AS nb_fichiers
+      FROM prospects p ORDER BY p.nom_complet COLLATE NOCASE`).all();
+    const cols = [
+      ['nom_complet', 'Nom complet'], ['prenom', 'Prénom'], ['nom', 'Nom'], ['titre', 'Titre'], ['entreprise', 'Entreprise'],
+      ['localisation', 'Localisation'], ['degre', 'Degré'], ['contact_par', 'Contact par'],
+      ['contacte', 'Contacté'], ['contacte_le', 'Contacté le'],
+      ['relance_le', 'Relance le'], ['notes', 'Notes'], ['nb_fichiers', 'Fichiers'],
+      ['relations_communes', 'Relations en commun'], ['anciennete_poste', 'Ancienneté poste'],
+      ['anciennete_entreprise', 'Ancienneté entreprise'], ['derniere_activite', 'Dernière activité'],
+      ['a_propos', 'À propos'], ['profil_url', 'URL Sales Navigator'], ['linkedin_url', 'URL LinkedIn'],
+      ['entreprise_url', 'URL entreprise'], ['imported_at', 'Importé le'], ['source_file', 'Source'],
+    ];
+    const cell = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+    const fmt = (k, v) => (k === 'contacte' ? (v ? 'oui' : 'non') : k === 'contacte_le' || k === 'imported_at' ? (v || '').slice(0, 10) : v);
+    const lines = [cols.map(([, h]) => cell(h)).join(';'), ...rows.map((r) => cols.map(([k]) => cell(fmt(k, r[k]))).join(';'))];
+    res.writeHead(200, {
+      'content-type': 'text/csv; charset=utf-8',
+      'content-disposition': `attachment; filename="outreach-${new Date().toISOString().slice(0, 10)}.csv"`,
+      'cache-control': 'no-store',
+    });
+    return res.end('﻿' + lines.join('\r\n'));
+  }
+
   if (path === '/prospects' && method === 'GET') {
     return json(res, 200, db.prepare('SELECT * FROM prospects ORDER BY updated_at DESC LIMIT 5000').all());
   }
@@ -193,6 +269,40 @@ async function api(req, res, url) {
     } catch (e) {
       return json(res, 400, { error: e.message });
     }
+  }
+
+  // ---- fichiers (audio, documents) rattachés à un prospect ----
+  if ((m = path.match(/^\/prospects\/([^/]+)\/files$/)) && method === 'GET') {
+    return json(res, 200, db.prepare('SELECT * FROM files WHERE prospect_id = ? ORDER BY uploaded_at DESC').all(decodeURIComponent(m[1])));
+  }
+  if ((m = path.match(/^\/prospects\/([^/]+)\/files$/)) && method === 'POST') {
+    const prospectId = decodeURIComponent(m[1]);
+    if (!db.prepare('SELECT 1 FROM prospects WHERE id = ?').get(prospectId)) return json(res, 404, { error: 'prospect introuvable' });
+    const filename = safeName(url.searchParams.get('filename'));
+    try {
+      return json(res, 200, await saveUpload(req, prospectId, filename, who));
+    } catch (e) {
+      return json(res, 413, { error: e.message });
+    }
+  }
+  if ((m = path.match(/^\/files\/([^/]+)$/)) && method === 'GET') {
+    const row = db.prepare('SELECT * FROM files WHERE id = ?').get(m[1]);
+    if (!row) return json(res, 404, { error: 'fichier introuvable' });
+    return sendFile(req, res, row);
+  }
+  if ((m = path.match(/^\/files\/([^/]+)$/)) && method === 'DELETE') {
+    const row = db.prepare('SELECT * FROM files WHERE id = ?').get(m[1]);
+    if (!row) return json(res, 404, { error: 'fichier introuvable' });
+    await rm(filePath(row), { force: true });
+    db.prepare('DELETE FROM files WHERE id = ?').run(row.id);
+    return json(res, 200, { ok: true });
+  }
+
+  if (path === '/import/names' && method === 'POST') {
+    const { text } = await readJson(req);
+    const names = String(text || '').split(/\r?\n/).map((l) => l.replace(/^[\s\-*•\d.)]+/, '').replace(/[;,\t].*$/, '').trim()).filter(Boolean);
+    if (!names.length) return json(res, 400, { error: 'aucun nom' });
+    return json(res, 200, markContactedByNames(db, names.slice(0, 2000), who));
   }
 
   if (path === '/import' && method === 'POST') {

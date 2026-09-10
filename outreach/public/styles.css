@@ -179,6 +179,13 @@ label.field > * { font-size: 14px; color: var(--ink); font-weight: 400; }
 .modal .foot { display: flex; justify-content: flex-end; gap: 8px; }
 .drop { border: 2px dashed var(--line); border-radius: var(--radius); padding: 28px; text-align: center; color: var(--ink-2); }
 .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.drop.small { padding: 14px; font-size: 13px; }
+.files { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.files li { display: grid; gap: 6px; }
+.file-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.file-head a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-head .btn { margin-left: auto; }
+.files audio { width: 100%; height: 36px; }
 .tpl { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); }
 .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--ink); color: var(--ground); padding: 10px 16px; border-radius: 999px; font-size: 13px; box-shadow: var(--shadow); z-index: 30; }
 

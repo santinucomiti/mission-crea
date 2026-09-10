@@ -90,7 +90,18 @@ function ImportModal({ onClose, onDone }) {
   const [busy, setBusy] = useState(false);
   const [over, setOver] = useState(false);
   const [log, setLog] = useState([]);
+  const [names, setNames] = useState('');
+  const [namesResult, setNamesResult] = useState('');
   const input = useRef();
+  const markNames = async () => {
+    setBusy(true);
+    try {
+      const r = await api('/import/names', { method: 'POST', body: { text: names } });
+      setNamesResult(`${r.matched} marqué${r.matched > 1 ? 's' : ''}, ${r.alreadyContacted} déjà contacté${r.alreadyContacted > 1 ? 's' : ''}, ${r.created} créé${r.created > 1 ? 's' : ''}${r.ignored.length ? `, ignorés : ${r.ignored.join(', ')}` : ''}`);
+      setNames(''); onDone();
+    } catch (e) { setNamesResult(e.message); }
+    setBusy(false);
+  };
   const handle = async (files) => {
     setBusy(true);
     const lines = [];
@@ -114,6 +125,10 @@ function ImportModal({ onClose, onDone }) {
       <input ref=${input} type="file" accept=".csv,text/csv" multiple hidden onChange=${(e) => handle([...e.target.files])} />
     </div>
     ${log.length > 0 && html`<ul class="tiny">${log.map((l) => html`<li>${l}</li>`)}</ul>`}
+    <h3 class="muted" style="margin:6px 0 0;font-size:13px">Ou : marquer des personnes comme déjà contactées</h3>
+    <p class="muted tiny" style="margin:0">Colle des noms, un par ligne (« Prénom Nom »). Ceux qui existent sont marqués contactés ; les autres sont créés en fiche minimale et fusionnés automatiquement quand l’extension les croise sur Sales Navigator.</p>
+    <textarea value=${names} onInput=${(e) => setNames(e.target.value)} placeholder=${'Nicolas Dupont\nSandy Rivière\n…'} rows="5"></textarea>
+    <div class="actions"><button class="btn" disabled=${!names.trim() || busy} onClick=${markNames}>Marquer contactés</button>${namesResult && html`<span class="tiny muted">${namesResult}</span>`}</div>
     <div class="foot"><button class="btn" onClick=${onClose}>Fermer</button></div>
   </div></div>`;
 }
@@ -160,6 +175,56 @@ function ExtensionModal({ onClose, toast }) {
   </div></div>`;
 }
 
+const fmtSize = (n) => (n > 1e6 ? (n / 1e6).toFixed(1) + ' Mo' : Math.round(n / 1e3) + ' Ko');
+
+function Files({ p, toast }) {
+  const [files, setFiles] = useState(null);
+  const [busy, setBusy] = useState('');
+  const [over, setOver] = useState(false);
+  const input = useRef();
+  const reload = () => api('/prospects/' + encodeURIComponent(p.id) + '/files').then(setFiles).catch((e) => toast(e.message));
+  useEffect(() => { setFiles(null); reload(); }, [p.id]);
+
+  const upload = async (list) => {
+    for (const f of list) {
+      setBusy(f.name);
+      try {
+        const res = await fetch('/api/prospects/' + encodeURIComponent(p.id) + '/files?filename=' + encodeURIComponent(f.name), {
+          method: 'POST', body: f, headers: { 'content-type': f.type || 'application/octet-stream' },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'envoi impossible');
+      } catch (e) { toast(`${f.name} : ${e.message}`); }
+    }
+    setBusy(''); reload();
+  };
+  const del = async (f) => {
+    if (!confirm(`Supprimer « ${f.filename} » ?`)) return;
+    await api('/files/' + f.id, { method: 'DELETE' }); reload();
+  };
+
+  return html`<section>
+    <h3>Fichiers · audio, notes d’entretien</h3>
+    <div class=${'drop small' + (over ? ' over' : '')}
+      onDragOver=${(e) => { e.preventDefault(); setOver(true); }}
+      onDragLeave=${() => setOver(false)}
+      onDrop=${(e) => { e.preventDefault(); setOver(false); upload([...e.dataTransfer.files]); }}>
+      ${busy ? `Envoi de ${busy}…` : html`Glisse un enregistrement ici ou <a href="#" onClick=${(e) => { e.preventDefault(); input.current.click(); }}>choisis un fichier</a>`}
+      <input ref=${input} type="file" multiple hidden onChange=${(e) => upload([...e.target.files])} />
+    </div>
+    ${files === null ? html`<div class="muted tiny">Chargement…</div>`
+      : files.length === 0 ? ''
+        : html`<ul class="files">${files.map((f) => html`<li key=${f.id}>
+          <div class="file-head">
+            <a href=${'/api/files/' + f.id} target="_blank" rel="noopener">${f.filename}</a>
+            <span class="muted tiny mono">${fmtSize(f.size)} · ${f.uploaded_by || '?'} · ${fmtDate(f.uploaded_at)}</span>
+            <button class="btn ghost small" onClick=${() => del(f)} aria-label="Supprimer">✕</button>
+          </div>
+          ${(f.mime || '').startsWith('audio/') && html`<audio controls preload="none" src=${'/api/files/' + f.id}></audio>`}
+        </li>`)}</ul>`}
+  </section>`;
+}
+
 function Detail({ p, people, templates, onPatch, onClose, toast }) {
   const [tplId, setTplId] = useState(templates[0]?.id);
   const [msg, setMsg] = useState('');
@@ -199,7 +264,7 @@ function Detail({ p, people, templates, onPatch, onClose, toast }) {
       </div>
       <label class="contact-toggle">
         <input type="checkbox" checked=${!!p.contacte} onChange=${(e) => patch({ contacte: e.target.checked })} />
-        <span><b>Contacté</b>${p.contacte && p.contacte_le ? html` <span class="muted tiny">le ${fmtDateTime(p.contacte_le)}${p.contacte_par ? ' par ' + p.contacte_par : ''}</span>` : ''}</span>
+        <span><b>Contacté</b>${p.contacte && p.contacte_le ? html` <span class="muted tiny">le ${fmtDateTime(p.contacte_le)}</span>` : ''}</span>
       </label>
       <div class="grid2">
         <label class="field">Contact par
@@ -223,6 +288,8 @@ function Detail({ p, people, templates, onPatch, onClose, toast }) {
       <textarea class="message-box" value=${msg} onInput=${(e) => setMsg(e.target.value)}></textarea>
       <div class="actions"><button class="btn primary" onClick=${copy}>Copier le message</button><span class="muted tiny mono">${msg.length} caractères${msg.length > 300 ? ' — au-delà de 300 pour une invitation' : ''}</span></div>
     </section>
+
+    <${Files} p=${p} toast=${toast} />
 
     ${p.a_propos && html`<section><h3>À propos</h3><div class="about">${p.a_propos}</div></section>`}
 
@@ -326,6 +393,7 @@ function App() {
       <div class="brand"><span class="logo"></span>Outreach <span class="sub">Mission Créa</span></div>
       <input class="search" type="search" placeholder="Rechercher nom, titre, entreprise, ville, notes…" value=${filters.q} onInput=${(e) => set({ q: e.target.value })} />
       <span class="spacer"></span>
+      <a class="btn" href="/api/export.csv" download>Exporter CSV</a>
       <button class="btn" onClick=${() => setModal('extension')}>Extension</button>
       <button class="btn" onClick=${() => setModal('templates')}>Modèles</button>
       <button class="btn primary" onClick=${() => setModal('import')}>Importer un CSV</button>
