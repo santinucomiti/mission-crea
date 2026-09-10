@@ -23,7 +23,6 @@ export function openDb(path) {
       nom_norm TEXT,
       source_file TEXT, imported_at TEXT NOT NULL, updated_at TEXT NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS prospects_nom_norm ON prospects(nom_norm);
     CREATE INDEX IF NOT EXISTS prospects_contacte ON prospects(contacte);
     CREATE INDEX IF NOT EXISTS prospects_contact ON prospects(contact_par);
     CREATE TABLE IF NOT EXISTS templates (
@@ -58,6 +57,7 @@ export function normName(s) {
 function migrate(db) {
   const cols = db.prepare('PRAGMA table_info(prospects)').all().map((c) => c.name);
   if (!cols.includes('nom_norm')) db.exec('ALTER TABLE prospects ADD COLUMN nom_norm TEXT');
+  db.exec('CREATE INDEX IF NOT EXISTS prospects_nom_norm ON prospects(nom_norm)');
   const missing = db.prepare('SELECT id, nom_complet FROM prospects WHERE nom_norm IS NULL').all();
   const upd = db.prepare('UPDATE prospects SET nom_norm = ? WHERE id = ?');
   for (const r of missing) upd.run(normName(r.nom_complet), r.id);
