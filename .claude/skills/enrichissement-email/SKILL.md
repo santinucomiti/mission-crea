@@ -161,6 +161,21 @@ Résultat : 14 A, 12 B, 3 C, 8 D, 163 sans adresse. Durée : 1 h 45 (≈ 1 min 1
 9. **Parallélisation** : chaque entreprise est indépendante ; v2 en traite 5 à la fois et charge les 25
    pages d'un site par lots de 6 → objectif ~10-15 s par entreprise au lieu de 75.
 
+**Smoke test UK #2 — 2026-09-11, mêmes 200 profils, script v2 parallèle (5 entreprises à la fois), 4 min + reprises.**
+
+10. **Greylistage = « réessayer dans 10 minutes », pas un verdict.** 25 adresses sur 153 sont revenues
+    `Unknown / Greylisted` au premier passage (les serveurs mail temporisent une première demande,
+    surtout quand on les sollicite en rafale). Le script marque ces adresses `retry`, ne rappelle l'API
+    qu'après 11 min et abandonne après 3 essais ; les appels au vérificateur sont sérialisés. Après
+    reprise : 15 restées inconnues sur 169. **Toujours faire une passe de reprise ≥ 10 min après le run.**
+11. **DuckDuckGo a rebloqué (51 fois) malgré la sérialisation** → Bing en secours fonctionne, mais ses
+    liens sont des redirections `/ck/a?…&u=a1<base64url>` à décoder ; requête en anglais
+    (« official website »), la version française renvoie une page vide.
+12. **Clearbit n'a rien résolu de plus que les moteurs** sur cet échantillon (noms d'entreprises UK
+    longs avec « plc », « Ltd » : la similarité de nom échoue). Piste : normaliser plus agressivement,
+    ou passer par le site web de la page compte Sales Navigator (source exacte, à automatiser).
+13. Horodatages : tout est en UTC dans l'état (`at`), ne jamais y écrire une heure locale.
+
 ## Checklist avant de rendre le résultat
 
 - [ ] Journal lu : entreprises « pattern inconnu / contradictoire » listées à l'utilisateur avec la piste manuelle (site, Hunter, GitHub).

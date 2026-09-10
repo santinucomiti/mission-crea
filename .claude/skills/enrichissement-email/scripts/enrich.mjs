@@ -89,7 +89,7 @@ function col(row, ...names) {
 // ---------- Normalisation des noms (§5.3) ----------
 const norm = (s) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9\s-]/g, ' ').trim();
 // Titres et diplômes collés au nom sur LinkedIn (« Ferguson MBA », « Smith CISSP, CISM ») : on les retire.
-const CREDENTIALS = /\b(mba|msc|bsc|ba|ma|phd|dr|prof|cissp|cism|cisa|crisc|ccsp|cipp\/?e?|cipm|ceh|oscp|gcih|cgeit|pmp|fbcs|mbcs|cbe|obe|mbe|frsa|ciso|ceo|cto|coo|cfo|jr|sr|ii|iii)\b/gi;
+const CREDENTIALS = /\b(mba|msc|bsc|ba|ma|phd|dr|prof|cissp|cism|cisa|crisc|ccsp|cipp\/?e?|cipm|ceh|oscp|gcih|cgeit|pmp|fbcs|mbcs|fsyi|fcips|ccie|cipd|aciis|cbe|obe|mbe|frsa|ciso|ceo|cto|coo|cfo|jr|sr|ii|iii)\b/gi;
 const stripCredentials = (s) => (s || '').replace(/[,(].*$/, '').replace(CREDENTIALS, ' ').replace(/\s+/g, ' ').trim();
 // « Sarah L. » : nom masqué par Sales Navigator hors réseau → impossible de générer une adresse.
 const truncatedSurname = (nom) => /^[A-Za-zÀ-ÿ]\.?$/.test((nom || '').trim());
@@ -142,7 +142,7 @@ function semaphore(n) {
   return async (fn) => { await new Promise((r) => { queue.push(r); next(); }); try { return await fn(); } finally { active--; next(); } };
 }
 const webSearchSlot = semaphore(1); // DuckDuckGo : une requête à la fois, espacée
-const verifySlot = semaphore(2);
+const verifySlot = semaphore(1); // le vérificateur greylist davantage quand on l'appelle en parallèle
 const githubSlot = semaphore(1);
 async function mapPool(items, n, fn) { const run = semaphore(n); return Promise.all(items.map((it) => run(() => fn(it)))); }
 
@@ -179,12 +179,19 @@ async function ddg(query) {
       .map((h) => (h.includes('uddg=') ? decodeURIComponent(h.split('uddg=')[1].split('&')[0]) : h));
   });
 }
-// Bing (HTML) en secours quand DuckDuckGo bloque.
+// Bing (HTML) en secours quand DuckDuckGo bloque. Les liens sont des redirections « /ck/a?…&u=a1<base64url> ».
 async function bing(query) {
   return webSearchSlot(async () => {
     await jitter(900, 1700);
-    const { text } = await get(`https://www.bing.com/search?q=${encodeURIComponent(query)}&setlang=fr`, { timeout: 12000 });
-    return [...text.matchAll(/<li class="b_algo"[\s\S]*?<a[^>]+href="(https?:[^"]+)"/g)].map((m) => m[1]);
+    const { text } = await get(`https://www.bing.com/search?q=${encodeURIComponent(query)}&FORM=QBLH`, { timeout: 12000 });
+    const out = [];
+    for (const block of text.split('<li class="b_algo"').slice(1)) {
+      const u = block.match(/[?&]u=a1([A-Za-z0-9_-]+)/);
+      if (u) { try { out.push(Buffer.from(u[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')); continue; } catch { /* base64 invalide */ } }
+      const direct = block.match(/<h2><a[^>]+href="(https?:[^"]+)"/) || block.match(/aria-label="([a-z0-9.-]+\.[a-z]{2,})"/i);
+      if (direct) out.push(direct[1].startsWith('http') ? direct[1] : 'https://' + direct[1]);
+    }
+    return out;
   });
 }
 async function webSearch(query, L) {
@@ -210,7 +217,7 @@ async function clearbitDomain(entreprise, L) {
 async function searchDomain(entreprise, L) {
   const cb = await clearbitDomain(entreprise, L);
   if (cb) return cb;
-  for (const u of await webSearch(`${entreprise} site officiel`, L)) {
+  for (const u of await webSearch(`${entreprise} official website`, L)) {
     try { const host = new URL(u).hostname.replace(/^www\./, ''); if (!DIRECTORIES.test(host) && !PUBLIC_DOMAINS.test(host)) return host; } catch { /* lien non exploitable */ }
   }
   return '';
@@ -321,7 +328,9 @@ async function verifyEmail(email, key) {
     // Réponse observée : {"Address","catch_all":0|1,"Status":"Valid|Invalid|Catch-all|Unknown|Greylisted",...}
     const s = String(j.Status || j.status || '').toLowerCase();
     const status = Number(j.catch_all) === 1 || /catch/.test(s) ? 'catch_all' : /^valid/.test(s) ? 'valid' : /invalid/.test(s) ? 'invalid' : 'unknown';
-    return { status, raw: j };
+    // « Greylisted. Try again in 10 minutes » : le serveur du destinataire temporise, ce n'est pas un verdict.
+    const retry = status === 'unknown' && (Number(j.Greylisted) === 1 || /try again|greylist/i.test(j.Diagnosis || ''));
+    return { status, retry, raw: j };
   } catch (e) { return { status: 'unknown', raw: e.message }; }
 }
 
@@ -339,8 +348,11 @@ function pickKey() {
 async function verifyOnce(email) {
   return verifySlot(() => verifyOnceInner(email));
 }
+const RETRY_AFTER_MS = 11 * 60 * 1000;
 async function verifyOnceInner(email) {
-  if (state.verified[email]) return state.verified[email];
+  if (process.env.DEBUG_VERIFY) log('   [debug] verifyOnce', email, JSON.stringify(state.verified[email] || null), 'run', verifiedThisRun, 'max', MAX_VERIFY_EFFECTIVE(), 'key', !!pickKey());
+  const prev = state.verified[email];
+  if (prev && !(prev.retry && Date.now() - Date.parse(prev.at) > RETRY_AFTER_MS)) return prev;
   if (verifiedThisRun >= MAX_VERIFY_EFFECTIVE()) return null;
   const pk = pickKey();
   if (!pk) { log('  quota du jour épuisé sur toutes les clés'); return null; }
@@ -349,10 +361,11 @@ async function verifyOnceInner(email) {
   state.quotaByKey[day + ':' + pk.id] = (state.quotaByKey[day + ':' + pk.id] || 0) + 1;
   verifiedThisRun++;
   const res = await verifyEmail(email, pk.key);
-  state.verified[email] = { status: res.status, at: new Date().toISOString() };
+  state.verified[email] = { status: res.status, at: new Date().toISOString(), ...(res.retry ? { retry: true, tries: (prev?.tries || 0) + 1 } : {}) };
+  if (res.retry && state.verified[email].tries >= 3) state.verified[email].retry = false; // on abandonne après 3 greylistages
   if (verifiedThisRun === 1) log('  réponse brute du vérificateur (à contrôler une fois) :', JSON.stringify(res.raw).slice(0, 300));
   saveState();
-  await jitter(300, 700);
+  await jitter(400, 900);
   return state.verified[email];
 }
 
@@ -449,7 +462,10 @@ async function processCompany([key, members]) {
   }
   // Domaine muet : on sonde les 3 patterns les plus fréquents sur UNE personne via le vérificateur.
   // Une adresse répondue « valid » est un témoin réel ; un catch-all coupe court (rien à apprendre).
+  // Sondage resté sans verdict (greylist) : on le rejoue ; verifyOnce ne rappelle l'API que si le délai est passé.
+  if (DO_VERIFY && d.probed && d.probed.some((x) => /:unknown$/.test(x))) { d.probed = null; d.catch_all = ''; }
   if (!d.pattern && d.patternStatus === 'inconnu' && DO_VERIFY && MEV_KEY && !d.probed) {
+    d.probedAt = new Date().toISOString();
     const m0 = members.find((m) => m.prenoms.length && m.noms.length);
     d.probed = [];
     // `prenom@` seul n'est sondé que pour une petite boîte : sur une grande, « rob@ » existe presque
@@ -490,7 +506,7 @@ async function processCompany([key, members]) {
   }
   const toVerify = members.filter((m) => m.out.email && !m.observed);
   if (DO_VERIFY && toVerify.length) {
-    if (!d.catch_all) {
+    if (!d.catch_all || d.catch_all === 'inconnu') {
       const probe = await verifyOnce(toVerify[0].out.email);
       if (probe) { d.catch_all = probe.status === 'catch_all' ? 'oui' : probe.status === 'unknown' ? 'inconnu' : 'non'; state.domains[key] = d; saveState(); }
     }
