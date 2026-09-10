@@ -295,7 +295,7 @@ async function api(req, res, url) {
       ['relance_le', 'Relance le'], ['notes', 'Notes'], ['nb_fichiers', 'Fichiers'],
       ['relations_communes', 'Relations en commun'], ['anciennete_poste', 'Ancienneté poste'],
       ['anciennete_entreprise', 'Ancienneté entreprise'], ['derniere_activite', 'Dernière activité'],
-      ['a_propos', 'À propos'], ['profil_url', 'URL Sales Navigator'], ['linkedin_url', 'URL LinkedIn'],
+      ['a_propos', 'À propos'], ['contexte_linkedin', 'Profil LinkedIn'], ['profil_url', 'URL Sales Navigator'], ['linkedin_url', 'URL LinkedIn'],
       ['entreprise_url', 'URL entreprise'], ['imported_at', 'Importé le'], ['source_file', 'Source'],
     ];
     const cell = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
