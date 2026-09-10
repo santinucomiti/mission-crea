@@ -357,6 +357,19 @@ async function api(req, res, url) {
     return json(res, 200, { ...result, parsed: rows.length });
   }
 
+  // Bloc-notes partagé de l'équipe (un seul document).
+  if (path === '/notes' && method === 'GET') {
+    return json(res, 200, db.prepare('SELECT * FROM notes WHERE id = ?').get('equipe') || { id: 'equipe', corps: '', updated_by: null, updated_at: null });
+  }
+  if (path === '/notes' && method === 'PUT') {
+    const { corps } = await readJson(req);
+    if (typeof corps !== 'string') return json(res, 400, { error: 'corps requis' });
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO notes(id, corps, updated_by, updated_at) VALUES ('equipe', @corps, @who, @now)
+      ON CONFLICT(id) DO UPDATE SET corps = excluded.corps, updated_by = excluded.updated_by, updated_at = excluded.updated_at`).run({ corps: corps.slice(0, 200_000), who, now });
+    return json(res, 200, db.prepare('SELECT * FROM notes WHERE id = ?').get('equipe'));
+  }
+
   if (path === '/templates' && method === 'GET') {
     return json(res, 200, db.prepare('SELECT * FROM templates ORDER BY id').all());
   }

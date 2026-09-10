@@ -72,6 +72,38 @@ function RelanceChip({ p }) {
   return html`<span class=${'chip ' + (st === 'later' ? 'later' : st)}>${label}</span>`;
 }
 
+// Bloc-notes partagé : un seul texte pour l'équipe, enregistré automatiquement.
+function NotesView({ who, toast }) {
+  const [doc, setDoc] = useState(null);
+  const [text, setText] = useState('');
+  const [state, setState] = useState('');
+  const timer = useRef();
+  const dirty = useRef(false);
+  useEffect(() => { api('/notes').then((d) => { setDoc(d); setText(d.corps || ''); }).catch((e) => toast(e.message)); }, []);
+  const save = async (value) => {
+    try {
+      const d = await api('/notes', { method: 'PUT', body: { corps: value } });
+      setDoc(d); dirty.current = false; setState('Enregistré');
+    } catch (e) { setState('Erreur : ' + e.message); }
+  };
+  const onInput = (v) => {
+    setText(v); dirty.current = true; setState('Modification…');
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => save(v), 800);
+  };
+  useEffect(() => () => { clearTimeout(timer.current); if (dirty.current) save(text); }, []);
+  if (doc === null) return html`<main class="main notes"><div class="empty">Chargement…</div></main>`;
+  return html`<main class="main notes">
+    <div class="list-head">
+      <span class="count">Notes de l’équipe</span>
+      <span class="muted tiny">${state || (doc.updated_at ? `Dernière modification par ${doc.updated_by} le ${fmtDateTime(doc.updated_at)}` : 'Aucune note pour l’instant')}</span>
+    </div>
+    <div class="notes-body">
+      <textarea value=${text} onInput=${(e) => onInput(e.target.value)} placeholder="Comptes rendus, idées, choses à ne pas oublier… Visible par Santinu, Eva et Rémi." spellcheck="true"></textarea>
+    </div>
+  </main>`;
+}
+
 function Login({ onOk }) {
   const [pw, setPw] = useState('');
   const [err, setErr] = useState('');
@@ -331,6 +363,8 @@ function App() {
   const [filters, setFilters] = useState({ q: '', contacte: 'all', person: 'all', relance: false, degre: 'all' });
   const [selectedId, setSelectedId] = useState(null);
   const [modal, setModal] = useState(null);
+  const [view, setView] = useState(() => (location.hash === '#notes' ? 'notes' : 'prospects'));
+  useEffect(() => { location.hash = view === 'notes' ? '#notes' : ''; }, [view]);
   const [toastMsg, setToastMsg] = useState('');
   const toastTimer = useRef();
 
@@ -404,7 +438,11 @@ function App() {
   return html`<div class="app">
     <header class="topbar">
       <div class="brand"><span class="logo"></span>Outreach <span class="sub">Mission Créa</span></div>
-      <input class="search" type="search" placeholder="Rechercher nom, titre, entreprise, ville, notes…" value=${filters.q} onInput=${(e) => set({ q: e.target.value })} />
+      <nav class="tabs" aria-label="Sections">
+        <button class=${'tab' + (view === 'prospects' ? ' active' : '')} onClick=${() => setView('prospects')}>Prospects</button>
+        <button class=${'tab' + (view === 'notes' ? ' active' : '')} onClick=${() => setView('notes')}>Notes</button>
+      </nav>
+      ${view === 'prospects' && html`<input class="search" type="search" placeholder="Rechercher nom, titre, entreprise, ville, notes…" value=${filters.q} onInput=${(e) => set({ q: e.target.value })} />`}
       <span class="spacer"></span>
       <a class="btn" href="/api/export.csv" download>Exporter CSV</a>
       <button class="btn" onClick=${() => setModal('extension')}>Extension</button>
@@ -416,7 +454,7 @@ function App() {
       </div>
     </header>
 
-    <div class=${'layout' + (selected ? ' with-detail' : '')}>
+    ${view === 'notes' ? html`<div class="layout"><${NotesView} who=${who} toast=${toast} /></div>` : html`<div class=${'layout' + (selected ? ' with-detail' : '')}>
       <nav class="rail">
         <h3>Suivi</h3>
         <button class=${'row' + (filters.contacte === 'all' && !filters.relance ? ' active' : '')} onClick=${() => set({ contacte: 'all', relance: false })}>Tous <span class="n">${counts.total}</span></button>
@@ -462,7 +500,7 @@ function App() {
       </main>
 
       ${selected && html`<${Detail} key=${selected.id} p=${selected} people=${people} templates=${templates} onPatch=${onPatch} onClose=${() => setSelectedId(null)} toast=${toast} />`}
-    </div>
+    </div>`}
 
     ${modal === 'import' && html`<${ImportModal} onClose=${() => setModal(null)} onDone=${() => api('/prospects').then(setProspects)} />`}
     ${modal === 'extension' && html`<${ExtensionModal} onClose=${() => setModal(null)} toast=${toast} />`}

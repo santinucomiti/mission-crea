@@ -40,6 +40,10 @@ export function openDb(path) {
       uploaded_by TEXT, uploaded_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS files_prospect ON files(prospect_id, uploaded_at);
+    CREATE TABLE IF NOT EXISTS notes (
+      id TEXT PRIMARY KEY, corps TEXT NOT NULL DEFAULT '',
+      updated_by TEXT, updated_at TEXT
+    );
   `);
   migrate(db);
   seed(db);
