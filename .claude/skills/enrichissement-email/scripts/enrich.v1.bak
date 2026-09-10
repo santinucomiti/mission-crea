@@ -9,8 +9,6 @@
 //   --no-search              ne cherche pas le domaine sur le web (utilise seulement la colonne domaine)
 //   --only-domains           s'arrête après la résolution des domaines et la récolte des témoins
 //   --hunter                 utilise Hunter (HUNTER_API_KEY) pour la recherche par domaine (pattern + témoins)
-//   --concurrency N          entreprises traitées en parallèle (défaut 5) ; la recherche web reste sérialisée
-//   --no-github              ne cherche pas de témoins dans les commits GitHub (GITHUB_TOKEN conseillé : 5 000 req/h au lieu de 60)
 //
 // Entrée : CSV (; ou ,) avec prenom, nom, entreprise, et optionnellement domaine, id, linkedin_url, poste, pays.
 // Sortie : le CSV d'entrée + domaine, email, pattern, source_pattern, nb_temoins, catch_all, verifie, confiance, note.
@@ -37,9 +35,6 @@ const MAX_VERIFY = Number(opt('--max-verify', 0)) || 0;
 const DO_VERIFY = flag('--verify');
 const USE_HUNTER = flag('--hunter');
 const NO_SEARCH = flag('--no-search');
-const NO_GITHUB = flag('--no-github');
-const CONCURRENCY = Math.max(1, Number(opt('--concurrency', 5)) || 5);
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN || '';
 // Une clé par membre de l'équipe (chacun son compte) : MYEMAILVERIFIER_KEYS="clé1,clé2" ou MYEMAILVERIFIER_KEY.
 const MEV_KEYS = [...new Set(((process.env.MYEMAILVERIFIER_KEYS || '') + ',' + (process.env.MYEMAILVERIFIER_KEY || '')).split(',').map((k) => k.trim()).filter(Boolean))];
 const MEV_KEY = MEV_KEYS[0] || '';
@@ -88,11 +83,6 @@ function col(row, ...names) {
 
 // ---------- Normalisation des noms (§5.3) ----------
 const norm = (s) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9\s-]/g, ' ').trim();
-// Titres et diplômes collés au nom sur LinkedIn (« Ferguson MBA », « Smith CISSP, CISM ») : on les retire.
-const CREDENTIALS = /\b(mba|msc|bsc|ba|ma|phd|dr|prof|cissp|cism|cisa|crisc|ccsp|cipp\/?e?|cipm|ceh|oscp|gcih|cgeit|pmp|fbcs|mbcs|cbe|obe|mbe|frsa|ciso|ceo|cto|coo|cfo|jr|sr|ii|iii)\b/gi;
-const stripCredentials = (s) => (s || '').replace(/[,(].*$/, '').replace(CREDENTIALS, ' ').replace(/\s+/g, ' ').trim();
-// « Sarah L. » : nom masqué par Sales Navigator hors réseau → impossible de générer une adresse.
-const truncatedSurname = (nom) => /^[A-Za-zÀ-ÿ]\.?$/.test((nom || '').trim());
 const PARTICLES = new Set(['de', 'du', 'des', 'la', 'le', 'les', 'van', 'von', 'der', 'den', 'di', 'da', 'del', 'della', 'dos', 'das', 'el', 'al', 'ben', 'bin', 'mac', 'mc', 'st', 'saint', 'y', 'e', 'd', 'l']);
 function nameVariants(s) {
   const tokens = norm(s).split(/[\s-]+/).filter(Boolean);
@@ -135,17 +125,6 @@ function shapePattern(local) {
   return null; // soudé ou prénom seul : ambigu sans le nom
 }
 
-// ---------- Concurrence ----------
-function semaphore(n) {
-  let active = 0; const queue = [];
-  const next = () => { if (active < n && queue.length) { active++; queue.shift()(); } };
-  return async (fn) => { await new Promise((r) => { queue.push(r); next(); }); try { return await fn(); } finally { active--; next(); } };
-}
-const webSearchSlot = semaphore(1); // DuckDuckGo : une requête à la fois, espacée
-const verifySlot = semaphore(2);
-const githubSlot = semaphore(1);
-async function mapPool(items, n, fn) { const run = semaphore(n); return Promise.all(items.map((it) => run(() => fn(it)))); }
-
 // ---------- Réseau ----------
 const UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36';
 async function get(url, { timeout = 10000, max = 600_000 } = {}) {
@@ -169,146 +148,54 @@ async function finalHost(domain) {
 }
 const cleanDomain = (s) => (s || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/[/?#].*$/, '');
 
-// Résultats DuckDuckGo (HTML) → URLs. Sérialisé et espacé pour ne pas déclencher le captcha.
-async function ddg(query) {
-  return webSearchSlot(async () => {
-    await jitter(900, 1700);
-    const { text } = await get(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, { timeout: 12000 });
-    if (/anomaly|captcha|challenge/i.test(text) && !/result__a/.test(text)) throw new Error('DuckDuckGo bloque (captcha) — réessayer plus tard ou --no-search');
-    return [...text.matchAll(/<a[^>]+class="result__a"[^>]+href="([^"]+)"/g)].map((m) => m[1])
-      .map((h) => (h.includes('uddg=') ? decodeURIComponent(h.split('uddg=')[1].split('&')[0]) : h));
-  });
-}
-// Bing (HTML) en secours quand DuckDuckGo bloque.
-async function bing(query) {
-  return webSearchSlot(async () => {
-    await jitter(900, 1700);
-    const { text } = await get(`https://www.bing.com/search?q=${encodeURIComponent(query)}&setlang=fr`, { timeout: 12000 });
-    return [...text.matchAll(/<li class="b_algo"[\s\S]*?<a[^>]+href="(https?:[^"]+)"/g)].map((m) => m[1]);
-  });
-}
-async function webSearch(query, L) {
-  try { return await ddg(query); } catch (e) { L('  duckduckgo :', e.message, '→ bing'); }
-  try { return await bing(query); } catch (e) { L('  bing :', e.message); }
-  return [];
-}
-// Annuaire d'entreprises → domaine, sans clé (Clearbit Autocomplete). Bien plus fiable qu'un moteur
-// de recherche pour les noms courts / homonymes ; on exige que le nom renvoyé ressemble au nôtre.
-async function clearbitDomain(entreprise, L) {
+async function searchDomain(entreprise) {
+  const q = encodeURIComponent(`${entreprise} site officiel`);
   try {
-    const r = await fetch(`https://autocomplete.clearbit.com/v1/companies/suggest?query=${encodeURIComponent(entreprise)}`, { signal: AbortSignal.timeout(8000) });
-    const list = r.ok ? await r.json() : [];
-    const want = norm(entreprise).replace(/\b(plc|ltd|limited|llc|inc|sas|sa|sarl|gmbh|group|groupe|holdings?)\b/g, '').replace(/\s+/g, '');
-    for (const c of list) {
-      const got = norm(c.name).replace(/\b(plc|ltd|limited|llc|inc|sas|sa|sarl|gmbh|group|groupe|holdings?)\b/g, '').replace(/\s+/g, '');
-      if (got === want || got.startsWith(want) || want.startsWith(got)) return c.domain;
-    }
-    if (list.length) L(`  clearbit propose ${list[0].name} (${list[0].domain}) — nom trop différent, ignoré`);
-  } catch (e) { L('  clearbit :', e.message); }
-  return '';
-}
-async function searchDomain(entreprise, L) {
-  const cb = await clearbitDomain(entreprise, L);
-  if (cb) return cb;
-  for (const u of await webSearch(`${entreprise} site officiel`, L)) {
-    try { const host = new URL(u).hostname.replace(/^www\./, ''); if (!DIRECTORIES.test(host) && !PUBLIC_DOMAINS.test(host)) return host; } catch { /* lien non exploitable */ }
-  }
-  return '';
-}
-// Pages tierces qui citent des adresses du domaine (communiqués, PDF, offres d'emploi, annuaires pro).
-async function webWitnesses(domain, L) {
-  const found = new Map();
-  try {
-    const urls = (await webSearch(`"@${domain}"`, L)).filter((u) => { try { const h = new URL(u).hostname; return !/duckduckgo|linkedin\.|facebook|twitter|x\.com/i.test(h); } catch { return false; } }).slice(0, 5);
-    await mapPool(urls, 3, async (u) => {
+    const { text } = await get(`https://html.duckduckgo.com/html/?q=${q}`, { timeout: 12000 });
+    const hrefs = [...text.matchAll(/<a[^>]+class="result__a"[^>]+href="([^"]+)"/g)].map((m) => m[1]);
+    for (const h of hrefs) {
+      const u = h.includes('uddg=') ? decodeURIComponent(h.split('uddg=')[1].split('&')[0]) : h;
       try {
-        const { text } = await get(u, { timeout: 8000, max: 500_000 });
-        for (const m of text.matchAll(EMAIL_RE(domain))) { const local = m[1].toLowerCase(); if (local.length >= 2 && local.length <= 40 && !GENERIC_LOCAL.test(local) && !found.has(local)) found.set(local, 'web:' + new URL(u).hostname); }
-      } catch { /* page inaccessible */ }
-    });
-  } catch (e) { L('  recherche « @domaine » impossible :', e.message); }
-  return [...found].map(([local, source]) => ({ local, source, name: '' }));
-}
-
-// Commits publics de l'organisation GitHub de l'entreprise (« git log --format=%ae »).
-let githubRemaining = Infinity;
-async function gh(path) {
-  if (githubRemaining < 3) return null;
-  return githubSlot(async () => {
-    const r = await fetch('https://api.github.com' + path, { headers: { 'user-agent': 'mission-crea-enrich', accept: 'application/vnd.github+json', ...(GITHUB_TOKEN ? { authorization: 'Bearer ' + GITHUB_TOKEN } : {}) }, signal: AbortSignal.timeout(15000) });
-    const rem = Number(r.headers.get('x-ratelimit-remaining')); if (!Number.isNaN(rem)) githubRemaining = rem;
-    if (r.status === 403 || r.status === 429) { githubRemaining = 0; return null; }
-    if (!r.ok) return null;
-    return r.json();
-  });
-}
-async function githubWitnesses(domain, entreprise, L) {
-  const found = new Map();
-  try {
-    const root = domain.split('.')[0];
-    const seen = new Set();
-    const candidates = [];
-    for (const q of [root, norm(entreprise).replace(/\s+/g, ' ')]) {
-      if (!q || q.length < 3) continue;
-      const res = await gh(`/search/users?q=${encodeURIComponent(q)}+type:org&per_page=5`);
-      for (const it of res?.items || []) if (!seen.has(it.login)) { seen.add(it.login); candidates.push(it.login); }
+        const host = new URL(u).hostname.replace(/^www\./, '');
+        if (DIRECTORIES.test(host) || PUBLIC_DOMAINS.test(host)) continue;
+        return host;
+      } catch { /* lien non exploitable */ }
     }
-    const rootN = root.replace(/[^a-z0-9]/g, '');
-    const entN = norm(entreprise).replace(/[^a-z0-9]/g, '');
-    let org = null;
-    for (const login of candidates.slice(0, 4)) {
-      const o = await gh(`/orgs/${login}`);
-      if (!o) continue;
-      const loginN = login.toLowerCase().replace(/[^a-z0-9]/g, '');
-      const blog = (o.blog || '').toLowerCase();
-      if (blog.includes(domain) || (o.email || '').endsWith('@' + domain) || loginN === rootN || loginN === entN) { org = o; break; }
-    }
-    if (!org) return [];
-    const repos = (await gh(`/orgs/${org.login}/repos?sort=pushed&per_page=6&type=public`)) || [];
-    for (const repo of repos) {
-      const commits = (await gh(`/repos/${org.login}/${repo.name}/commits?per_page=100`)) || [];
-      for (const c of commits) {
-        const email = (c.commit?.author?.email || '').toLowerCase();
-        if (!email.endsWith('@' + domain)) continue;
-        const local = email.split('@')[0];
-        if (!GENERIC_LOCAL.test(local) && !/noreply|no-reply|bot|ci@|deploy|jenkins|github|actions/.test(local) && !found.has(local)) found.set(local, { source: 'github:' + org.login, name: c.commit.author.name || '' });
-      }
-      if (found.size >= 6) break;
-    }
-  } catch (e) { L('  github :', e.message); }
-  return [...found].map(([local, v]) => ({ local, source: v.source, name: v.name }));
+  } catch (e) { log('  recherche web impossible :', e.message); }
+  return '';
 }
 
 const SITE_PAGES = ['/', '/contact', '/contact-us', '/nous-contacter', '/mentions-legales', '/legal', '/legal-notice', '/imprint', '/impressum', '/about', '/about-us', '/a-propos', '/qui-sommes-nous', '/equipe', '/team', '/our-team', '/careers', '/carrieres', '/recrutement', '/jobs', '/privacy', '/politique-de-confidentialite', '/presse', '/press'];
 async function siteWitnesses(domain) {
   const found = new Map(); // local -> page
-  await mapPool(SITE_PAGES, 6, async (p) => {
+  for (const p of SITE_PAGES) {
     try {
-      const { status, text } = await get('https://' + domain + p, { timeout: 6000, max: 400_000 });
-      if (status >= 400) return;
+      const { status, text } = await get('https://' + domain + p, { timeout: 8000, max: 400_000 });
+      if (status >= 400) continue;
       for (const m of text.matchAll(EMAIL_RE(domain))) {
         const local = m[1].toLowerCase();
         if (local.length < 2 || local.length > 40 || GENERIC_LOCAL.test(local) || /^[0-9a-f]{16,}$/.test(local)) continue;
         if (!found.has(local)) found.set(local, p);
       }
     } catch { /* page absente ou lente */ }
-  });
+    await jitter(150, 400);
+  }
   return [...found].map(([local, page]) => ({ local, source: 'site' + page, name: '' }));
 }
 
-async function hunterDomain(domain, L = log) {
+async function hunterDomain(domain) {
   if (!HUNTER_KEY) return null;
   try {
     const r = await fetch(`https://api.hunter.io/v2/domain-search?domain=${encodeURIComponent(domain)}&limit=20&api_key=${HUNTER_KEY}`, { signal: AbortSignal.timeout(15000) });
     const j = await r.json();
-    if (!r.ok) { L('  hunter :', j.errors?.[0]?.details || r.status); return null; }
+    if (!r.ok) { log('  hunter :', j.errors?.[0]?.details || r.status); return null; }
     const d = j.data || {};
     return {
       pattern: HUNTER_PATTERNS[d.pattern] || null,
       witnesses: (d.emails || []).filter((e) => e.value && !GENERIC_LOCAL.test(e.value.split('@')[0]))
         .map((e) => ({ local: e.value.split('@')[0].toLowerCase(), source: 'hunter', name: [e.first_name, e.last_name].filter(Boolean).join(' ') })),
     };
-  } catch (e) { L('  hunter :', e.message); return null; }
+  } catch (e) { log('  hunter :', e.message); return null; }
 }
 
 // MyEmailVerifier — 100 vérifications gratuites par jour, la réponse porte le catch-all.
@@ -337,9 +224,6 @@ function pickKey() {
   return null;
 }
 async function verifyOnce(email) {
-  return verifySlot(() => verifyOnceInner(email));
-}
-async function verifyOnceInner(email) {
   if (state.verified[email]) return state.verified[email];
   if (verifiedThisRun >= MAX_VERIFY_EFFECTIVE()) return null;
   const pk = pickKey();
@@ -359,8 +243,8 @@ async function verifyOnceInner(email) {
 // ---------- Pipeline ----------
 const input = parseCsv(readFileSync(inputPath, 'utf8'));
 const people = input.map((row, i) => {
-  const prenom = stripCredentials(col(row, 'prenom', 'firstname', 'first'));
-  const nom = stripCredentials(col(row, 'nom', 'lastname', 'last', 'name'));
+  const prenom = col(row, 'prenom', 'firstname', 'first');
+  const nom = col(row, 'nom', 'lastname', 'last', 'name');
   return {
     i, row, prenom, nom,
     prenoms: nameVariants(prenom), noms: nameVariants(nom),
@@ -375,23 +259,20 @@ const groups = new Map();
 for (const p of people) {
   const key = p.domaine || norm(p.entreprise);
   if (!key) { p.out.note = 'entreprise absente'; continue; }
-  if (truncatedSurname(p.nom)) { p.out.note = 'nom tronqué par Sales Navigator (hors réseau) — ouvrir le profil pour le nom complet'; continue; }
   if (!groups.has(key)) groups.set(key, []);
   groups.get(key).push(p);
 }
 const ordered = [...groups.entries()].sort((a, b) => b[1].length - a[1].length);
-log(`${people.length} profils, ${ordered.length} entreprises, ${CONCURRENCY} en parallèle${GITHUB_TOKEN ? ', GitHub authentifié' : NO_GITHUB ? '' : ', GitHub anonyme (60 req/h)'}. État : ${STATE_PATH}${DO_VERIFY ? ` · vérification activée (${MEV_KEYS.length} clé(s), max ${MAX_VERIFY_EFFECTIVE()})` : ''}`);
+log(`${people.length} profils, ${ordered.length} entreprises. État : ${STATE_PATH}${DO_VERIFY ? ` · vérification activée (${MEV_KEYS.length} clé(s), max ${MAX_VERIFY_EFFECTIVE()})` : ''}`);
 
-async function processCompany([key, members]) {
-  const lines = []; const L = (...a) => lines.push(a.join(' '));
-  try {
+for (const [key, members] of ordered) {
   const label = members[0].entreprise || key;
-  L(`▶ ${label} (${members.length})`);
+  log(`\n▶ ${label} (${members.length})`);
   // 1. Domaine
   let d = state.domains[key];
   if (!d) {
     let domain = members.find((m) => m.domaine)?.domaine || '';
-    if (!domain && !NO_SEARCH) domain = await searchDomain(label, L);
+    if (!domain && !NO_SEARCH) { domain = await searchDomain(label); await jitter(800, 1600); }
     if (!domain) { d = { domain: '', stop: 'domaine introuvable' }; }
     else {
       const root = domain;
@@ -404,24 +285,22 @@ async function processCompany([key, members]) {
     }
     state.domains[key] = d; saveState();
   }
-  if (d.stop) { log(`  ✗ ${d.stop}${d.domain ? ' (' + d.domain + ')' : ''}`); for (const m of members) { m.out.domaine = d.domain; m.out.note = d.stop; } return; }
-  L(`  domaine : ${d.domain}`);
+  if (d.stop) { log(`  ✗ ${d.stop}${d.domain ? ' (' + d.domain + ')' : ''}`); for (const m of members) { m.out.domaine = d.domain; m.out.note = d.stop; } continue; }
+  log(`  domaine : ${d.domain}`);
   for (const m of members) m.out.domaine = d.domain;
   // 2. Témoins
   if (!d.witnesses) {
     d.witnesses = await siteWitnesses(d.domain);
-    if (!d.witnesses.length && !NO_GITHUB) d.witnesses.push(...await githubWitnesses(d.domain, label, L));
-    if (!d.witnesses.length && !NO_SEARCH) d.witnesses.push(...await webWitnesses(d.domain, L));
     // E-mails écrits dans les profils LinkedIn (Infos, en-tête…) des personnes de la liste : témoins « profil public ».
     for (const m of members) {
       const txt = [col(m.row, 'apropos', 'about', 'contexte', 'profillinkedin', 'contextelinkedin', 'infos'), m.row.__texte || ''].join(' ');
       for (const w of txt.matchAll(EMAIL_RE(d.domain))) { const local = w[1].toLowerCase(); if (!GENERIC_LOCAL.test(local) && !d.witnesses.some((x) => x.local === local)) d.witnesses.push({ local, source: 'profil', name: `${m.prenom} ${m.nom}` }); }
     }
-    if (USE_HUNTER) { const h = await hunterDomain(d.domain, L); if (h) { d.witnesses.push(...h.witnesses.filter((w) => !d.witnesses.some((x) => x.local === w.local))); if (h.pattern) d.hunterPattern = h.pattern; } }
+    if (USE_HUNTER) { const h = await hunterDomain(d.domain); if (h) { d.witnesses.push(...h.witnesses.filter((w) => !d.witnesses.some((x) => x.local === w.local))); if (h.pattern) d.hunterPattern = h.pattern; } }
     state.domains[key] = d; saveState();
   }
-  L(`  témoins : ${d.witnesses.length ? d.witnesses.map((w) => w.local).join(', ') : 'aucun'}${d.hunterPattern ? ' · hunter → ' + d.hunterPattern : ''}`);
-  if (flag('--only-domains')) return;
+  log(`  témoins : ${d.witnesses.length ? d.witnesses.map((w) => w.local).join(', ') : 'aucun'}${d.hunterPattern ? ' · hunter → ' + d.hunterPattern : ''}`);
+  if (flag('--only-domains')) continue;
   // 3. Pattern (§5.2) — un témoin qui correspond à un profil de la liste = adresse observée (A) et pattern prouvé.
   const votes = {};
   const vote = (pattern, w, weight = 1) => { votes[pattern] = votes[pattern] || { n: 0, sources: [] }; votes[pattern].n += weight; votes[pattern].sources.push(w.source); };
@@ -430,7 +309,7 @@ async function processCompany([key, members]) {
     for (const m of members) for (const pat of Object.keys(PATTERNS)) {
       if (candidates(m, pat).includes(w.local)) { matched = true; vote(pat, w, 1); m.observed = { email: w.local + '@' + d.domain, source: w.source }; }
     }
-    if (matched) return;
+    if (matched) continue;
     if (w.name) { // témoin nommé (Hunter) : on compare au nom
       const [pn, ...nn] = w.name.split(' ');
       const fake = { prenoms: nameVariants(pn), noms: nameVariants(nn.join(' ')) };
@@ -452,10 +331,7 @@ async function processCompany([key, members]) {
   if (!d.pattern && d.patternStatus === 'inconnu' && DO_VERIFY && MEV_KEY && !d.probed) {
     const m0 = members.find((m) => m.prenoms.length && m.noms.length);
     d.probed = [];
-    // `prenom@` seul n'est sondé que pour une petite boîte : sur une grande, « rob@ » existe presque
-    // toujours… pour quelqu'un d'autre (faux positif observé sur Schroders, Parliament).
-    const probes = members.length >= 3 ? ['prenom.nom', 'p.nom', 'prenomnom'] : ['prenom.nom', 'p.nom', 'prenom'];
-    for (const pat of probes) {
+    for (const pat of ['prenom.nom', 'p.nom', 'prenom']) {
       if (!m0) break;
       const email = primary(m0, pat) + '@' + d.domain;
       const v = await verifyOnce(email);
@@ -464,26 +340,19 @@ async function processCompany([key, members]) {
       if (v.status === 'catch_all') { d.catch_all = 'oui'; d.patternStatus = 'inconnu (catch-all, sondage impossible)'; break; }
       if (v.status === 'unknown') { d.catch_all = 'inconnu'; d.patternStatus = 'inconnu (vérificateur muet)'; break; }
       d.catch_all = 'non';
-      if (v.status === 'valid') {
-        // Contre-épreuve sur un second profil : un seul « valid » peut être une collision de prénom.
-        const m1 = members.find((m) => m !== m0 && m.prenoms.length && m.noms.length);
-        let confirmed = true;
-        if (m1) { const v1 = await verifyOnce(primary(m1, pat) + '@' + d.domain); if (v1) { d.probed.push(pat + '(2e):' + v1.status); confirmed = v1.status !== 'invalid'; if (v1.status === 'valid') m1.observed = { email: primary(m1, pat) + '@' + d.domain, source: 'sondage' }; } }
-        if (!confirmed) { d.patternStatus = 'inconnu (sondage contredit par un 2e profil)'; break; }
-        d.pattern = pat; d.patternStatus = m1 && d.probed.at(-1).endsWith(':valid') ? 'confirmé' : 'probable'; d.source = 'sondage'; d.nb = d.patternStatus === 'confirmé' ? 2 : 1; m0.observed = { email, source: 'sondage' }; break;
-      }
+      if (v.status === 'valid') { d.pattern = pat; d.patternStatus = 'probable'; d.source = 'sondage'; d.nb = 1; m0.observed = { email, source: 'sondage' }; break; }
     }
     if (d.probed.length) log(`  sondage : ${d.probed.join(', ')}`);
     state.domains[key] = d; saveState();
   }
-  L(`  pattern : ${d.pattern || '—'} (${d.patternStatus}${d.nb ? ', ' + d.nb + ' témoin(s)' : ''})`);
+  log(`  pattern : ${d.pattern || '—'} (${d.patternStatus}${d.nb ? ', ' + d.nb + ' témoin(s)' : ''})`);
   if (!d.pattern) {
     for (const m of members) { if (m.observed) { Object.assign(m.out, { email: m.observed.email, pattern: 'observé', source_pattern: m.observed.source, confiance: 'A', verifie: 'oui' }); } else m.out.note = 'pattern ' + d.patternStatus + ' — non généré'; }
-    return;
+    continue;
   }
   // 4. Génération + 5. Catch-all (1 fois par domaine) + 6. Vérification
   for (const m of members) {
-    if (m.observed) { Object.assign(m.out, { email: m.observed.email, pattern: 'observé', source_pattern: m.observed.source, nb_temoins: d.nb, confiance: 'A', verifie: 'oui' }); return; }
+    if (m.observed) { Object.assign(m.out, { email: m.observed.email, pattern: 'observé', source_pattern: m.observed.source, nb_temoins: d.nb, confiance: 'A', verifie: 'oui' }); continue; }
     const email = m.email || (primary(m, d.pattern) ? primary(m, d.pattern) + '@' + d.domain : '');
     Object.assign(m.out, { email, pattern: d.pattern, source_pattern: d.source, nb_temoins: d.nb, verifie: 'non' });
     if (!email) m.out.note = 'nom inexploitable';
@@ -509,10 +378,8 @@ async function processCompany([key, members]) {
     if (v?.status === 'unknown') m.out.note = 'vérification inconnue — retenter dans 48 h';
   }
   const conf = members.map((m) => m.out.confiance).filter(Boolean);
-  L(`  → ${conf.length} adresses : ${['A', 'B', 'C', 'D'].map((c) => c + '=' + conf.filter((x) => x === c).length).join(' ')}${d.catch_all ? ' · catch-all ' + d.catch_all : ''}`);
-  } finally { console.error(lines.join('\n')); }
+  log(`  → ${conf.length} adresses : ${['A', 'B', 'C', 'D'].map((c) => c + '=' + conf.filter((x) => x === c).length).join(' ')}${d.catch_all ? ' · catch-all ' + d.catch_all : ''}`);
 }
-await mapPool(ordered, CONCURRENCY, processCompany);
 
 // ---------- Sortie ----------
 const inCols = Object.keys(input[0] || {});

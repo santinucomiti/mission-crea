@@ -35,6 +35,10 @@ Depuis le CRM : filtrer (ex. Pays → Royaume-Uni, Suivi → À contacter) puis 
 
 ## Commandes
 
+Depuis la v2, le script traite 5 entreprises en parallèle (`--concurrency N`), cherche des témoins dans
+les commits GitHub (`GITHUB_TOKEN` conseillé, `--no-github` pour couper) et sur le web (`"@domaine"`),
+et résout les domaines via Clearbit → DuckDuckGo → Bing.
+
 ```bash
 S=~/.claude/skills/enrichissement-email/scripts   # ou .claude/skills/enrichissement-email/scripts dans le dépôt mission-crea
 node $S/enrich.mjs entree.csv sortie.csv --state etat.json              # domaines + témoins + patterns + génération, sans vérification
@@ -122,6 +126,40 @@ node $S/enrich.mjs entree.csv sortie.csv --state etat.json --only-domains   # ju
 Sur un gros volume hétérogène : **40-50 % d'adresses en A/B sans coût**, avec un niveau de confiance
 explicite par ligne. Le résidu (C/D, patterns inconnus, catch-all non résolus) part, si besoin, vers
 un outil payant (Dropcontact, Lemlist) uniquement sur ce résidu.
+
+## Retours d'expérience (à enrichir après chaque campagne)
+
+**Smoke test UK #1 — 2026-09-10, 200 profils, 86 entreprises, script v1 séquentiel, 82 crédits.**
+Résultat : 14 A, 12 B, 3 C, 8 D, 163 sans adresse. Durée : 1 h 45 (≈ 1 min 15 par entreprise).
+
+1. **Le moteur de recherche est le maillon faible.** DuckDuckGo a bloqué (captcha silencieux) en
+   cours de run → 47 entreprises sur 86 « domaine introuvable » (94 profils, la moitié de l'échantillon).
+   Correctif v2 : résolution par l'annuaire Clearbit Autocomplete (sans clé, très fiable sur les noms
+   d'entreprise, contrôle de similarité du nom), puis DuckDuckGo, puis Bing en secours ; recherche web
+   sérialisée et espacée ; détection explicite du captcha. Ne jamais lancer deux instances en parallèle
+   qui cherchent sur le même moteur.
+2. **Homonymes sur noms courts** : « Citron » → citroen.fr, « CLS Group » → cls.fr (une autre CLS).
+   Toujours préférer un annuaire d'entreprises à un moteur de recherche, et quand l'entreprise vient
+   de Sales Navigator, récupérer le site web sur la page compte (source parfaite, à automatiser dans l'extension).
+3. **Noms tronqués** : Sales Navigator masque le nom hors réseau (« Sarah L. ») → adresses `sarah.l@`
+   inévitablement fausses. v2 : ces profils sont écartés avec la note « nom tronqué » ; ouvrir le profil
+   LinkedIn (l'extension aspire alors le nom complet) avant de relancer.
+4. **Titres collés au nom** (« Ferguson MBA », « Smith CISSP ») → `fergusonmba@`. v2 retire les
+   diplômes/certifications courants avant de générer.
+5. **Sondage `prenom@` sur une grosse boîte = faux positif** : `rob@schroders.com` existe, mais ce
+   n'est pas notre Rob. v2 : `prenom@` n'est sondé que si l'entreprise a < 3 profils dans la liste, et
+   tout sondage réussi est contre-vérifié sur un 2e profil avant d'être adopté.
+6. **Catch-all : 10 domaines sur 36 (28 %)** — Google Workspace / M365 très répandus au UK ; ces
+   boîtes plafonnent à B même avec un pattern confirmé. Inutile de dépenser des crédits dessus.
+7. **Coût réel des crédits** : 54 des 82 vérifications étaient des sondages négatifs (66 %). Le sondage
+   est rentable seulement pour les entreprises multi-profils ; pour un profil isolé, un témoin site /
+   GitHub / profil vaut mieux qu'un sondage.
+8. **Témoins sur le site : 9 domaines sur 36 seulement.** D'où l'ajout en v2 des commits GitHub de
+   l'organisation (Jus Mundi : 2 témoins immédiats → `p.nom` confirmé) et d'une recherche « "@domaine" »
+   pour les pages tierces (communiqués, PDF, offres). Un `GITHUB_TOKEN` (sans portée) passe la limite
+   de 60 à 5 000 requêtes/heure.
+9. **Parallélisation** : chaque entreprise est indépendante ; v2 en traite 5 à la fois et charge les 25
+   pages d'un site par lots de 6 → objectif ~10-15 s par entreprise au lieu de 75.
 
 ## Checklist avant de rendre le résultat
 
