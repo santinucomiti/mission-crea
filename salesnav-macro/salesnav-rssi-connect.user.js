@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sales Navigator — liste + Se connecter
 // @namespace    micoti.salesnav
-// @version      0.6.1
+// @version      0.6.2
 // @description  Par prospect : ouvre « Se connecter », pré-remplit la note ([Prénom], [Nom], [Entreprise], [Titre]) et marque « contacté » dans le CRM Outreach dès le clic. Badges CRM, envoi auto des pages, export CSV.
 // @match        https://www.linkedin.com/sales/*
 // @grant        GM_getValue
@@ -30,6 +30,7 @@
   const TOKENS_HELP = 'Tokens : [Prénom] [Nom] [Entreprise] [Titre]';
   const contactList = () => cfg('contacts').split('|').map((s) => s.trim()).filter(Boolean);
   const cfg = (key) => GM_getValue(key, DEFAULTS[key]);
+  const paused = () => !!GM_getValue('syncPaused', false);
 
   GM_registerMenuCommand('Modifier le message', () => {
     const v = prompt('Message — ' + TOKENS_HELP, cfg('message'));
@@ -291,7 +292,8 @@
     const entries = cards.map((card) => ({ card, info: leadInfo(card) })).filter((e) => leadId(e.info));
     if (!entries.length) return;
     try {
-      const fresh = entries.filter((e) => force || !crm.synced.has(leadId(e.info)));
+      // En pause, on lit toujours les statuts (badges) mais on n'envoie plus rien au CRM.
+      const fresh = paused() ? [] : entries.filter((e) => force || !crm.synced.has(leadId(e.info)));
       if (fresh.length) {
         await crm.request('POST', '/sync/upsert', { leads: fresh.map((e) => e.info) });
         fresh.forEach((e) => crm.synced.add(leadId(e.info)));
@@ -316,14 +318,20 @@
       el = document.createElement('button');
       el.type = 'button';
       el.className = 'sn-macro-crm-indicator';
-      el.addEventListener('click', () => (crm.state === 'no-token' ? askCrmToken() : syncPage(true)));
+      el.addEventListener('click', () => {
+        if (crm.state === 'no-token') return askCrmToken();
+        GM_setValue('syncPaused', !paused());
+        syncPage(true);
+      });
       document.body.appendChild(el);
     }
-    el.dataset.state = crm.state;
-    el.textContent = crm.state === 'ok' ? `CRM ✓ ${crm.who} · ${crm.synced.size} sync`
+    el.dataset.state = paused() && crm.state === 'ok' ? 'paused' : crm.state;
+    el.textContent = crm.state === 'ok' ? (paused() ? `CRM ⏸ pause · ${crm.who}` : `CRM ✓ ${crm.who} · ${crm.synced.size} sync`)
       : crm.state === 'no-token' ? 'CRM : coller le jeton'
         : crm.state === 'error' ? `CRM ✗ ${crm.lastError || ''}` : 'CRM…';
-    el.title = crm.state === 'ok' ? 'Cliquer pour resynchroniser la page' : crm.state === 'no-token' ? 'Jeton disponible dans le CRM, bouton « Extension »' : '';
+    el.title = crm.state === 'ok'
+      ? (paused() ? 'Envoi au CRM en pause (les badges restent). Cliquer pour reprendre.' : 'Envoi automatique des pages au CRM. Cliquer pour mettre en pause (ex. autre recherche).')
+      : crm.state === 'no-token' ? 'Jeton disponible dans le CRM, bouton « Extension »' : '';
   }
 
   async function run(card, btn) {
@@ -449,6 +457,7 @@
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
     .sn-macro-crm-indicator[data-state="ok"] { border-color: #057642; color: #057642; }
+    .sn-macro-crm-indicator[data-state="paused"] { border-color: #666; color: #666; background: #f3f3f3; }
     .sn-macro-crm-indicator[data-state="no-token"] { border-color: #b24020; color: #b24020; }
     .sn-macro-crm-indicator[data-state="error"] { border-color: #b24020; color: #b24020; }
     .sn-macro-crm { display: inline-flex; align-items: center; gap: 6px; margin-right: 6px; }

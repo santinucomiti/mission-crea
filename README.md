@@ -31,7 +31,9 @@ Sur chaque prospect d'une page Sales Navigator (résultats de recherche ou liste
 - dès que tu cliques ⚡, la personne est marquée contactée dans le CRM (pas de clic supplémentaire).
 
 Toutes les pages que tu visites sont envoyées au CRM automatiquement (profil, titre, entreprise…),
-et un bouton **⬇ CSV page** exporte la page courante si besoin.
+et un bouton **⬇ CSV page** exporte la page courante si besoin. Si tu fais une recherche qui n'a rien
+à voir avec la mission, clique la pastille verte **« CRM ✓ … »** en bas à droite : elle passe en
+**« CRM ⏸ pause »** et plus rien n'est envoyé (les badges restent visibles). Re-clique pour reprendre.
 
 ### Prérequis
 
