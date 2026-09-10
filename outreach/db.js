@@ -170,7 +170,7 @@ export function markContactedByNames(db, names, who) {
   return result;
 }
 
-export const EDITABLE = ['contact_par', 'contacte', 'interviewe', 'notes', 'relance_le', 'linkedin_url'];
+export const EDITABLE = ['contacte', 'interviewe', 'notes', 'relance_le', 'linkedin_url'];
 
 export function updateProspect(db, id, patch, who) {
   const current = db.prepare('SELECT * FROM prospects WHERE id = ?').get(id);

@@ -4,7 +4,7 @@ Suivi de prospection LinkedIn partagé, alimenté par les exports CSV du userscr
 Sales Navigator (`../salesnav-macro`). Une page, une base SQLite, un mot de passe par personne
 (le mot de passe identifie qui est connecté — `OUTREACH_USERS` dans `.env`).
 
-Pour chaque prospect : contacté ou non (et quand), contact attribué (Santinu / Eva / Rémi),
+Pour chaque prospect : contacté ou non (et quand), interviewé ou non,
 date de relance, notes, fichiers audio, message pré-rempli à copier (`[Prénom]`, `[Nom]`, `[Entreprise]`, `[Titre]`).
 Les photos de profil sont recopiées sur le serveur au premier affichage (`data/photos/`, route
 `/api/photo/:id`) : les URL LinkedIn expirent et les bloqueurs de pub les masquent.
@@ -47,7 +47,7 @@ Dans l'app, bouton **Extension** → jeton personnel (`Authorization: Bearer <pr
 dérivé de `OUTREACH_SECRET`, révoqué en changeant le secret). Collé une fois dans le userscript
 (bouton flottant « CRM » ou menu Violentmonkey → « Connecter au CRM »), il permet :
 
-- badge sur chaque prospect Sales Navigator : « ✓ Contacté · 9 sept. », « CRM · Rémi » (attribué), ou « CRM » ;
+- badge sur chaque prospect Sales Navigator : « 🎙 Interviewé », « ✓ Contacté · 9 sept. », ou « CRM » ;
 - envoi automatique des pages visitées (`POST /api/sync/upsert`, sans écraser le suivi) ;
 - « Marquer contacté » sur la carte, et marquage automatique dès le clic sur le bouton ⚡ ;
 - le bouton ⚡ demande confirmation si quelqu'un a déjà contacté la personne.

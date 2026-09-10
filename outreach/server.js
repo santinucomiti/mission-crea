@@ -236,7 +236,7 @@ async function api(req, res, url) {
     const ids = (url.searchParams.get('ids') || '').split(',').filter(Boolean).slice(0, 200);
     const out = {};
     if (ids.length) {
-      const rows = db.prepare(`SELECT id, contacte, contacte_par, contacte_le, interviewe, interviewe_le, contact_par, relance_le, notes FROM prospects WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids);
+      const rows = db.prepare(`SELECT id, contacte, contacte_par, contacte_le, interviewe, interviewe_le, relance_le, notes FROM prospects WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids);
       for (const r of rows) out[r.id] = { ...r, notes: r.notes ? r.notes.slice(0, 120) : '' };
     }
     return json(res, 200, { who, status: out });
@@ -255,10 +255,7 @@ async function api(req, res, url) {
       if (!row || row.id !== id) return json(res, 404, { error: 'prospect inconnu du CRM' });
       upsertProspects(db, [row], 'extension');
     }
-    const patch = { contacte: true };
-    const current = db.prepare('SELECT contact_par FROM prospects WHERE id = ?').get(id);
-    if (!current.contact_par) patch.contact_par = who;
-    return json(res, 200, updateProspect(db, id, patch, who));
+    return json(res, 200, updateProspect(db, id, { contacte: true }, who));
   }
 
   if (path === '/export.csv' && method === 'GET') {
@@ -267,7 +264,7 @@ async function api(req, res, url) {
       FROM prospects p ORDER BY p.nom_complet COLLATE NOCASE`).all();
     const cols = [
       ['nom_complet', 'Nom complet'], ['prenom', 'Prénom'], ['nom', 'Nom'], ['titre', 'Titre'], ['entreprise', 'Entreprise'],
-      ['localisation', 'Localisation'], ['degre', 'Degré'], ['contact_par', 'Contact par'],
+      ['localisation', 'Localisation'], ['degre', 'Degré'],
       ['contacte', 'Contacté'], ['contacte_le', 'Contacté le'],
       ['interviewe', 'Interviewé'], ['interviewe_le', 'Interviewé le'],
       ['relance_le', 'Relance le'], ['notes', 'Notes'], ['nb_fichiers', 'Fichiers'],

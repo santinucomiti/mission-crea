@@ -287,12 +287,6 @@ function Detail({ p, people, templates, onPatch, onClose, toast }) {
         <span><b>Interviewé</b> <span class="muted tiny">entretien réalisé${p.interviewe && p.interviewe_le ? ' le ' + fmtDateTime(p.interviewe_le) : ''}</span></span>
       </label>
       <div class="grid2">
-        <label class="field">Contact par
-          <select value=${p.contact_par || ''} onChange=${(e) => patch({ contact_par: e.target.value })}>
-            <option value="">— non attribué —</option>
-            ${people.map((x) => html`<option value=${x.name}>${x.name}</option>`)}
-          </select>
-        </label>
         <label class="field">Relance le
           <input type="date" value=${p.relance_le || ''} onChange=${(e) => patch({ relance_le: e.target.value })} />
         </label>
@@ -334,7 +328,7 @@ function App() {
   const [who, setWho] = useState('');
   const [prospects, setProspects] = useState([]);
   const [templates, setTemplates] = useState([]);
-  const [filters, setFilters] = useState({ q: '', contacte: 'all', person: 'all', relance: false, degre: 'all' });
+  const [filters, setFilters] = useState({ q: '', contacte: 'all', relance: false, degre: 'all' });
   const [selectedId, setSelectedId] = useState(null);
   const [modal, setModal] = useState(null);
   const [toastMsg, setToastMsg] = useState('');
@@ -372,14 +366,12 @@ function App() {
   };
 
   const counts = useMemo(() => {
-    const c = { total: prospects.length, contacte: 0, aContacter: 0, interviewe: 0, relance: 0, person: {}, degre: {} };
+    const c = { total: prospects.length, contacte: 0, aContacter: 0, interviewe: 0, relance: 0, degre: {} };
     for (const p of prospects) {
       if (p.contacte) c.contacte++; else c.aContacter++;
       if (p.interviewe) c.interviewe++;
       const rs = relanceState(p);
       if (rs === 'due' || rs === 'overdue') c.relance++;
-      const k = p.contact_par || '';
-      c.person[k] = (c.person[k] || 0) + 1;
       if (p.degre) c.degre[p.degre] = (c.degre[p.degre] || 0) + 1;
     }
     return c;
@@ -392,7 +384,6 @@ function App() {
         if (filters.contacte === 'oui' && !p.contacte) return false;
         if (filters.contacte === 'non' && p.contacte) return false;
         if (filters.contacte === 'interviewe' && !p.interviewe) return false;
-        if (filters.person !== 'all' && (p.contact_par || '') !== filters.person) return false;
         if (filters.degre !== 'all' && p.degre !== filters.degre) return false;
         if (filters.relance) { const rs = relanceState(p); if (rs !== 'due' && rs !== 'overdue') return false; }
         if (q && !norm([p.nom_complet, p.titre, p.entreprise, p.localisation, p.notes].join(' ')).includes(q)) return false;
@@ -431,11 +422,6 @@ function App() {
         <button class=${'row' + (filters.contacte === 'interviewe' && !filters.relance ? ' active' : '')} onClick=${() => set({ contacte: 'interviewe', relance: false })}>Interviewés <span class="n">${counts.interviewe}</span></button>
         <button class=${'row' + (filters.relance ? ' active' : '')} onClick=${() => set({ relance: !filters.relance, contacte: 'all' })}>Relances dues <span class="n">${counts.relance}</span></button>
 
-        <h3>Contact par</h3>
-        <button class=${'row' + (filters.person === 'all' ? ' active' : '')} onClick=${() => set({ person: 'all' })}>Tout le monde <span class="n">${counts.total}</span></button>
-        ${people.map((x) => html`<button class=${'row' + (filters.person === x.name ? ' active' : '')} onClick=${() => set({ person: x.name })}><span style="display:flex;align-items:center"><span class="swatch" style=${`background:${x.color}`}></span>${x.name}</span> <span class="n">${counts.person[x.name] || 0}</span></button>`)}
-        <button class=${'row' + (filters.person === '' ? ' active' : '')} onClick=${() => set({ person: '' })}>Non attribué <span class="n">${counts.person[''] || 0}</span></button>
-
         <h3>Degré</h3>
         <button class=${'row' + (filters.degre === 'all' ? ' active' : '')} onClick=${() => set({ degre: 'all' })}>Tous</button>
         ${Object.keys(counts.degre).sort().map((d) => html`<button class=${'row' + (filters.degre === d ? ' active' : '')} onClick=${() => set({ degre: d })}>${d} <span class="n">${counts.degre[d]}</span></button>`)}
@@ -444,7 +430,7 @@ function App() {
       <main class="main">
         <div class="list-head">
           <span class="count">${visible.length} prospect${visible.length > 1 ? 's' : ''}</span>
-          ${(filters.q || filters.contacte !== 'all' || filters.person !== 'all' || filters.degre !== 'all' || filters.relance) && html`<button class="btn ghost small" onClick=${() => setFilters({ q: '', contacte: 'all', person: 'all', relance: false, degre: 'all' })}>Effacer les filtres</button>`}
+          ${(filters.q || filters.contacte !== 'all' || filters.degre !== 'all' || filters.relance) && html`<button class="btn ghost small" onClick=${() => setFilters({ q: '', contacte: 'all', relance: false, degre: 'all' })}>Effacer les filtres</button>`}
         </div>
         ${prospects.length === 0
           ? html`<div class="empty"><h2>Aucun prospect pour l’instant</h2><p>Importe les CSV exportés depuis Sales Navigator avec le bouton « ⬇ CSV page ».</p><button class="btn primary" onClick=${() => setModal('import')}>Importer un CSV</button></div>`
@@ -463,7 +449,7 @@ function App() {
                     ${p.notes && html`<span title=${p.notes}>📝 note</span>`}
                   </div>
                 </div>
-                <div class="chips"><${ContactChip} p=${p} /><${PersonChip} name=${p.contact_par} people=${people} /><${RelanceChip} p=${p} /></div>
+                <div class="chips"><${ContactChip} p=${p} /><${RelanceChip} p=${p} /></div>
               </article>`)}</div>`}
       </main>
 

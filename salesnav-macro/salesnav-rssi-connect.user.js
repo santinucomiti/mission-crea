@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sales Navigator — liste + Se connecter
 // @namespace    micoti.salesnav
-// @version      0.6.2
+// @version      0.6.3
 // @description  Par prospect : ouvre « Se connecter », pré-remplit la note ([Prénom], [Nom], [Entreprise], [Titre]) et marque « contacté » dans le CRM Outreach dès le clic. Badges CRM, envoi auto des pages, export CSV.
 // @match        https://www.linkedin.com/sales/*
 // @grant        GM_getValue
@@ -197,7 +197,7 @@
     state: 'idle', // idle | ok | no-token | error
     who: '',
     synced: new Set(),
-    status: new Map(), // id -> {contacte, contacte_par, contacte_le, contact_par, notes}
+    status: new Map(), // id -> {contacte, contacte_le, interviewe, interviewe_le, relance_le, notes}
     reset() { this.state = 'idle'; this.synced.clear(); this.status.clear(); },
     request(method, path, body) {
       const token = cfg('crmToken');
@@ -247,8 +247,7 @@
       el.append(pill(`✓ Contacté${st.contacte_le ? ' · ' + fmtDay(st.contacte_le) : ''}`, 'done', st.notes || ''));
       return;
     }
-    if (st.contact_par) el.append(pill(`CRM · ${st.contact_par}`, 'assigned', 'Attribué dans le CRM'));
-    else el.append(pill('CRM', 'synced', 'Dans le CRM, personne ne l’a contacté'));
+    el.append(pill('CRM', 'synced', 'Dans le CRM, personne ne l’a contacté'));
     const mark = document.createElement('button');
     mark.type = 'button';
     mark.className = 'sn-macro-mark';
