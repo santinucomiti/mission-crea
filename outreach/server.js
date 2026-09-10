@@ -46,6 +46,11 @@ const MIME = {
 
 const safeName = (name) => basename(name || 'fichier').replace(/[^\p{L}\p{N}._ -]/gu, '_').slice(0, 150) || 'fichier';
 
+// Seuls les enregistrements sont acceptés. Un .mp4 (vidéo de visio) est gardé tel quel mais
+// seule sa piste audio est lue dans l'app.
+const AUDIO_EXT = new Set(['.mp3', '.m4a', '.aac', '.wav', '.ogg', '.oga', '.opus', '.webm', '.flac', '.mp4', '.m4b', '.mov']);
+const isRecording = (filename, mime) => AUDIO_EXT.has(extname(filename).toLowerCase()) || /^audio\//.test(mime || '') || mime === 'video/mp4';
+
 // Upload : le corps de la requête est écrit tel quel sur le disque (pas de multipart, pas de buffer mémoire).
 async function saveUpload(req, prospectId, filename, who) {
   const id = randomUUID();
@@ -304,6 +309,10 @@ async function api(req, res, url) {
     const prospectId = decodeURIComponent(m[1]);
     if (!db.prepare('SELECT 1 FROM prospects WHERE id = ?').get(prospectId)) return json(res, 404, { error: 'prospect introuvable' });
     const filename = safeName(url.searchParams.get('filename'));
+    if (!isRecording(filename, req.headers['content-type'])) {
+      req.resume();
+      return json(res, 415, { error: 'seuls les enregistrements audio sont acceptés (.mp3, .m4a, .wav, .mp4…)' });
+    }
     try {
       return json(res, 200, await saveUpload(req, prospectId, filename, who));
     } catch (e) {

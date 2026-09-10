@@ -180,6 +180,8 @@ function ExtensionModal({ onClose, toast }) {
 }
 
 const fmtSize = (n) => (n > 1e6 ? (n / 1e6).toFixed(1) + ' Mo' : Math.round(n / 1e3) + ' Ko');
+// Un .mp4 est lu dans un lecteur audio : seule la piste son nous intéresse.
+const isPlayable = (f) => /^audio\//.test(f.mime || '') || /\.(mp3|m4a|aac|wav|ogg|oga|opus|webm|flac|mp4|m4b|mov)$/i.test(f.filename || '');
 
 function Files({ p, toast }) {
   const [files, setFiles] = useState(null);
@@ -213,8 +215,8 @@ function Files({ p, toast }) {
       onDragOver=${(e) => { e.preventDefault(); setOver(true); }}
       onDragLeave=${() => setOver(false)}
       onDrop=${(e) => { e.preventDefault(); setOver(false); upload([...e.dataTransfer.files]); }}>
-      ${busy ? `Envoi de ${busy}…` : html`Glisse un enregistrement ici ou <a href="#" onClick=${(e) => { e.preventDefault(); input.current.click(); }}>choisis un fichier</a>`}
-      <input ref=${input} type="file" multiple hidden onChange=${(e) => upload([...e.target.files])} />
+      ${busy ? `Envoi de ${busy}…` : html`Glisse un enregistrement (.mp3, .m4a, .wav, .mp4…) ici ou <a href="#" onClick=${(e) => { e.preventDefault(); input.current.click(); }}>choisis un fichier</a>`}
+      <input ref=${input} type="file" multiple hidden accept="audio/*,video/mp4,.mp3,.m4a,.wav,.mp4,.mov" onChange=${(e) => upload([...e.target.files])} />
     </div>
     ${files === null ? html`<div class="muted tiny">Chargement…</div>`
       : files.length === 0 ? ''
@@ -224,7 +226,7 @@ function Files({ p, toast }) {
             <span class="muted tiny mono">${fmtSize(f.size)} · ${f.uploaded_by || '?'} · ${fmtDate(f.uploaded_at)}</span>
             <button class="btn ghost small" onClick=${() => del(f)} aria-label="Supprimer">✕</button>
           </div>
-          ${(f.mime || '').startsWith('audio/') && html`<audio controls preload="none" src=${'/api/files/' + f.id}></audio>`}
+          ${isPlayable(f) && html`<audio controls preload="none" src=${'/api/files/' + f.id}></audio>`}
         </li>`)}</ul>`}
   </section>`;
 }
