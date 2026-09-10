@@ -1,0 +1,17 @@
+{
+  "name": "outreach",
+  "version": "0.1.0",
+  "description": "Suivi d'outreach LinkedIn partagé, alimenté par les exports CSV Sales Navigator",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "OUTREACH_PASSWORD=dev OUTREACH_SECRET=dev-secret PORT=3500 node --watch server.js",
+    "import": "node scripts/import.js"
+  },
+  "dependencies": {
+    "htm": "^3.1.1",
+    "preact": "^10.24.0"
+  }
+}
