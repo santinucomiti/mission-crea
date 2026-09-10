@@ -27,7 +27,7 @@ sudo cp deploy/outreach.service /etc/systemd/system/outreach.service
 sudo cp deploy/nginx-outreach.conf /etc/nginx/sites-available/outreach
 sudo ln -s /etc/nginx/sites-available/outreach /etc/nginx/sites-enabled/outreach
 cp .env.example .env && $EDITOR .env
-sudo certbot certonly --webroot -w /var/www/certbot -d outreach.clippingatlas.com
+sudo certbot certonly --webroot -w /var/www/certbot -d missioncrea.clippingatlas.com
 sudo nginx -t && sudo systemctl reload nginx
 sudo systemctl enable --now outreach
 ```
@@ -35,7 +35,7 @@ sudo systemctl enable --now outreach
 Ensuite, depuis ce dossier : `./deploy/deploy.sh` (rsync + restart). La base vit dans
 `/home/ubuntu/outreach/data/outreach.sqlite` ; elle n'est jamais écrasée par un déploiement.
 
-DNS : `outreach.clippingatlas.com` → A `91.134.141.72` (OVH).
+DNS : `missioncrea.clippingatlas.com` → A `91.134.141.72` (OVH).
 
 ## Synchro avec l'extension Sales Navigator
 

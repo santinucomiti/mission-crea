@@ -8,7 +8,7 @@
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
 // @grant        GM_xmlhttpRequest
-// @connect      outreach.clippingatlas.com
+// @connect      missioncrea.clippingatlas.com
 // @connect      127.0.0.1
 // @connect      localhost
 // @run-at       document-idle
@@ -24,7 +24,7 @@
       'les opportunités sur le marché des pentests. Auriez-vous 20 minutes pour ' +
       'partager votre regard sur le secteur ?',
     contacts: 'Santinu|Eva|Rémi',
-    crmUrl: 'https://outreach.clippingatlas.com',
+    crmUrl: 'https://missioncrea.clippingatlas.com',
     crmToken: '',
   };
   const TOKENS_HELP = 'Tokens : [Prénom] [Nom] [Entreprise] [Titre]';
