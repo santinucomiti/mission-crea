@@ -28,7 +28,7 @@ Sur chaque prospect d'une page Sales Navigator (résultats de recherche ou liste
   d'équipe (`Bonjour [Prénom], avec deux étudiants de X-HEC Entrepreneurs…`) ;
 - un badge **✓ Contacté · date** si quelqu'un de l'équipe l'a déjà contacté (donc on ne le refait pas) ;
 - un bouton **Marquer contacté** pour le dire au CRM à la main ;
-- quand tu cliques **Envoyer** après ⚡, la personne est marquée contactée toute seule.
+- dès que tu cliques ⚡, la personne est marquée contactée dans le CRM (pas de clic supplémentaire).
 
 Toutes les pages que tu visites sont envoyées au CRM automatiquement (profil, titre, entreprise…),
 et un bouton **⬇ CSV page** exporte la page courante si besoin.
@@ -140,7 +140,8 @@ Le message d'invitation se change avec **Modifier le message** (tokens disponibl
 
 1. Ouvre une page de résultats Sales Navigator. Les badges te disent qui est déjà contacté.
 2. Sur une carte sans badge « Contacté », clique **⚡ Connecter** → la fenêtre d'invitation s'ouvre
-   avec le message pré-rempli → relis → **Envoyer**. Le CRM est mis à jour tout seul.
+   avec le message pré-rempli → relis → **Envoyer**. Le CRM est déjà à jour dès le clic sur ⚡ ;
+   si finalement tu n'envoies pas, décoche « Contacté » dans le CRM.
 3. Si tu contactes quelqu'un autrement (message, InMail, mail), clique **Marquer contacté** sur sa carte
    ou coche « Contacté » dans le CRM.
 4. Notes, date de relance et fichiers audio des entretiens : dans le CRM, fiche du prospect.

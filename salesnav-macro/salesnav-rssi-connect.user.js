@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Sales Navigator — liste + Se connecter
 // @namespace    micoti.salesnav
-// @version      0.5.0
-// @description  Par prospect : ouvre « Se connecter », pré-remplit la note ([Prénom], [Nom], [Entreprise], [Titre]) et marque « contacté » dans le CRM Outreach à l'envoi. Badges CRM, envoi auto des pages, export CSV.
+// @version      0.6.0
+// @description  Par prospect : ouvre « Se connecter », pré-remplit la note ([Prénom], [Nom], [Entreprise], [Titre]) et marque « contacté » dans le CRM Outreach dès le clic. Badges CRM, envoi auto des pages, export CSV.
 // @match        https://www.linkedin.com/sales/*
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -322,19 +322,6 @@
     el.title = crm.state === 'ok' ? 'Cliquer pour resynchroniser la page' : crm.state === 'no-token' ? 'Jeton disponible dans le CRM, bouton « Extension »' : '';
   }
 
-  // Après l’ouverture de « Se connecter », le clic sur « Envoyer » marque le prospect contacté.
-  function watchSend(card) {
-    const onClick = (e) => {
-      const btn = e.target.closest('button');
-      if (!btn || !/^Envoyer( l.invitation)?$/i.test(norm(btn.textContent))) return;
-      document.removeEventListener('click', onClick, true);
-      clearTimeout(timer);
-      setTimeout(() => markContacted(card), 500);
-    };
-    document.addEventListener('click', onClick, true);
-    const timer = setTimeout(() => document.removeEventListener('click', onClick, true), 10 * 60 * 1000);
-  }
-
   async function run(card, btn) {
     if (btn.dataset.busy) return;
     const info = leadInfo(card);
@@ -349,10 +336,11 @@
       status('… connexion');
       const fieldsBefore = await openConnect(card);
       await fillNote(message, fieldsBefore);
+      // Marqué contacté dès que l'invitation est prête (demande explicite : pas de clic supplémentaire).
       const tracked = !!cfg('crmToken');
-      if (tracked) watchSend(card);
+      if (tracked) { status('… CRM'); await markContacted(card); }
 
-      status(tracked ? '✓ note prête · « Envoyer » marquera contacté' : '✓ note prête, relis et envoie');
+      status(tracked ? '✓ note prête · contacté' : '✓ note prête, relis et envoie');
       btn.classList.add('done');
     } catch (e) {
       log(e);
@@ -375,7 +363,7 @@
       btn.type = 'button';
       btn.className = BTN_CLASS;
       btn.textContent = '⚡ Connecter';
-      btn.title = 'Ouvre « Se connecter », pré-remplit la note ; le clic sur Envoyer marque contacté dans le CRM';
+      btn.title = 'Ouvre « Se connecter », pré-remplit la note ; marque contacté dans le CRM dès le clic';
       btn.addEventListener('click', () => run(card, btn));
       li.appendChild(btn);
       anchorLi.after(li);

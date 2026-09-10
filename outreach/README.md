@@ -49,7 +49,7 @@ dérivé de `OUTREACH_SECRET`, révoqué en changeant le secret). Collé une foi
 
 - badge sur chaque prospect Sales Navigator : « ✓ Contacté · 9 sept. », « CRM · Rémi » (attribué), ou « CRM » ;
 - envoi automatique des pages visitées (`POST /api/sync/upsert`, sans écraser le suivi) ;
-- « Marquer contacté » sur la carte, et marquage automatique quand tu cliques « Envoyer » après le bouton ⚡ ;
+- « Marquer contacté » sur la carte, et marquage automatique dès le clic sur le bouton ⚡ ;
 - le bouton ⚡ demande confirmation si quelqu'un a déjà contacté la personne.
 
 ## Import
