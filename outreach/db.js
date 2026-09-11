@@ -277,10 +277,11 @@ export function upsertCompany(db, { entrepriseUrl, nom, site }) {
 }
 // Nom complet retrouvé (slug LinkedIn, page profil) pour une fiche dont Sales Navigator masquait le nom (« Mark K. »).
 export const isTruncatedName = (nom) => /^[A-Za-zÀ-ÿ]\.?$/.test((nom || '').trim());
+const CREDENTIALS = /\b(mba|msc|bsc|ma|phd|dr|cissp|cism|cisa|crisc|ccsp|cipp|cipm|ceh|oscp|cgeit|pmp|fbcs|mbcs|fsyi|msyi|afciis|fcips|ccie|cipd|cbe|obe|mbe|frsa)\b/gi;
 export function fixName(db, id, nomComplet) {
   const row = db.prepare('SELECT prenom, nom FROM prospects WHERE id = ?').get(id);
   if (!row || !isTruncatedName(row.nom)) return false;
-  const parts = (nomComplet || '').trim().split(/\s+/);
+  const parts = (nomComplet || '').replace(CREDENTIALS, ' ').trim().split(/\s+/).filter(Boolean);
   if (parts.length < 2) return false;
   const nom = parts.slice(1).join(' ');
   if (isTruncatedName(nom) || nom[0].toLowerCase() !== (row.nom || '')[0].toLowerCase()) return false;
