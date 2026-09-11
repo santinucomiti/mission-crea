@@ -16,7 +16,7 @@ sur les acronymes), lancer, puis **relire** le résultat avant de le rendre.
   (`~/.cache/huggingface/hub/`). Qualité large-v3, ~6× plus rapide. `Systran/faster-whisper-medium`
   est aussi en cache (moins bon en français, à éviter).
 - `ffmpeg` installé (extraction de la piste audio des `.mp4`).
-- Vitesse observée : ~1 min de calcul pour 10 min d'audio.
+- Vitesse observée : 90 s d'audio en 28 s chargement du modèle compris ; ~1 min de calcul pour 10 min d'audio.
 
 ## Étapes
 
@@ -34,10 +34,10 @@ sur les acronymes), lancer, puis **relire** le résultat avant de le rendre.
    profil LinkedIn aspiré : `contexte_linkedin`), `notes` = résumé des notes existantes. Les termes
    génériques du métier sont déjà dans `glossaire.txt` ; n'y ajouter que ce qui est spécifique à cet
    entretien. Orthographe exacte : Whisper recopie ce qu'on lui donne.
-3. **Lancer** :
+3. **Lancer** (toujours via `run.sh` : il exporte le `LD_LIBRARY_PATH` vers les bibliothèques cuBLAS/cuDNN
+   embarquées par Ollama dans `/usr/local/lib/ollama/`, sans quoi ctranslate2 ne trouve pas le GPU) :
    ```bash
-   ~/Work/nestjs-course/.venv/bin/python .claude/skills/transcription/scripts/transcribe.py entretien.mp4 \
-     --out transcripts/<prenom-nom>.txt --context contexte.json --lang fr
+   .claude/skills/transcription/scripts/run.sh entretien.mp4 --out transcripts/<prenom-nom>.txt --context contexte.json --lang fr
    ```
    `--lang en` pour un entretien en anglais (Luis Gomes de Abreu, CISO UK…) ; `--max-seconds 120`
    pour un essai rapide. Le script affiche les segments au fil de l'eau sur stderr.
