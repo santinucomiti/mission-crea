@@ -1,0 +1,57 @@
+# Vocabulaire métier injecté dans le prompt Whisper (une entrée par ligne, orthographe de référence).
+# Garder court : le prompt est limité à ~224 jetons, seules les ~45 premières entrées y entrent ; toutes vont dans les hotwords.
+RSSI
+CISO
+DSI
+pentest
+test d'intrusion
+pentesteur
+red team
+blue team
+purple team
+SOC
+EDR
+XDR
+SIEM
+MDR
+CTEM
+PTaaS
+bug bounty
+vulnérabilité
+CVE
+CVSS
+scan de vulnérabilités
+surface d'attaque
+ISO 27001
+NIS2
+DORA
+RGPD
+CNIL
+ANSSI
+PSSI
+PASSI
+SecNumCloud
+LPM
+OIV
+OSE
+phishing
+ransomware
+zero trust
+IAM
+MFA
+PAM
+Active Directory
+cloud
+AWS
+Azure
+Kubernetes
+Microsoft 365
+Google Workspace
+prestataire
+ESN
+appel d'offres
+budget
+CISSP
+X-HEC Entrepreneurs
+HEC
+Polytechnique
