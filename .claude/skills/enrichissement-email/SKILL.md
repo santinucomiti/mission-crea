@@ -181,6 +181,20 @@ Résultat : 14 A, 12 B, 3 C, 8 D, 163 sans adresse. Durée : 1 h 45 (≈ 1 min 1
     ou passer par le site web de la page compte Sales Navigator (source exacte, à automatiser).
 13. Horodatages : tout est en UTC dans l'état (`at`), ne jamais y écrire une heure locale.
 
+**Smoke test UK #3 — 2026-09-11, mêmes 200 profils, domaines relevés sur les pages compte Sales Navigator.**
+Résultat : **34 A, 14 B, 7 C, 5 D** (A+B = 24 %, contre 13 % en v1) ; 4 min + reprise ; 50 crédits.
+
+14. **Le site web de la page compte Sales Navigator est la source de domaine à privilégier** : 85 sites
+    sur 85 comptes visités, zéro « domaine introuvable », zéro homonyme, aucune recherche web. Il faut
+    donc faire visiter les pages compte (extension, ou parcours headless) avant tout enrichissement.
+15. **Noms masqués : le slug LinkedIn n'en récupère que 11 %** (5 sur 45). Le reste est perdu pour
+    l'e-mail — ces personnes ont choisi de cacher leur nom ; les garder pour LinkedIn uniquement.
+16. **Le plafond restant est structurel** : 86 profils « pattern inconnu » = domaines catch-all sans témoin
+    (le sondage ne peut rien) + boîtes sans aucun témoin public. C'est le résidu à confier à Hunter
+    (pattern par domaine) ou Dropcontact, pas à plus de bricolage.
+17. Avec le vérificateur appelé en série, 3 greylistés seulement (contre 25 en parallèle) → toujours
+    sérialiser, et garder la passe de reprise à +10 min : elle a fait passer A de 22 à 34.
+
 ## Checklist avant de rendre le résultat
 
 - [ ] Journal lu : entreprises « pattern inconnu / contradictoire » listées à l'utilisateur avec la piste manuelle (site, Hunter, GitHub).
