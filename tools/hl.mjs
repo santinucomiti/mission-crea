@@ -1,0 +1,22 @@
+// node hl.mjs <url> <js> [attente ms] — ouvre l'URL dans le Brave headless (9333) avec les cookies LinkedIn, évalue le JS, ferme l'onglet.
+import { readFileSync } from 'node:fs';
+const [url, expr, waitMs = '8000'] = process.argv.slice(2);
+const t = await (await fetch('http://127.0.0.1:9333/json/new?about:blank', { method: 'PUT' })).json();
+const ws = new WebSocket(t.webSocketDebuggerUrl);
+await new Promise((r, e) => { ws.onopen = r; ws.onerror = e; });
+let id = 0; const pending = new Map();
+ws.onmessage = (m) => { const d = JSON.parse(m.data); if (d.id && pending.has(d.id)) { pending.get(d.id)(d); pending.delete(d.id); } };
+const send = (method, params = {}) => new Promise((r) => { const i = ++id; pending.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
+const cookies = JSON.parse(readFileSync(new URL('./li-cookies.json', import.meta.url), 'utf8')).map((c) => ({ name: c.name, value: c.value, domain: c.domain, path: c.path, secure: c.secure, httpOnly: c.httpOnly, sameSite: c.sameSite, expires: c.expires }));
+await send('Network.enable');
+await send('Network.setCookies', { cookies });
+await send('Emulation.setUserAgentOverride', { userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36' });
+await send('Page.enable');
+await send('Page.navigate', { url });
+await new Promise((r) => setTimeout(r, Number(waitMs)));
+const res = await send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true });
+if (res.result?.exceptionDetails) console.error('EXC', JSON.stringify(res.result.exceptionDetails.exception?.description || res.result.exceptionDetails));
+const v = res.result?.result?.value;
+console.log(typeof v === 'string' ? v : JSON.stringify(v, null, 1));
+ws.close();
+await fetch('http://127.0.0.1:9333/json/close/' + t.id);
