@@ -33,6 +33,9 @@ export function openDb(path) {
     CREATE TABLE IF NOT EXISTS people (
       name TEXT PRIMARY KEY, color TEXT NOT NULL, position INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS entreprises (
+      entreprise_url TEXT PRIMARY KEY, nom TEXT, site TEXT, domaine TEXT, maj TEXT
+    );
     CREATE TABLE IF NOT EXISTS files (
       id TEXT PRIMARY KEY,
       prospect_id TEXT NOT NULL REFERENCES prospects(id) ON DELETE CASCADE,
@@ -262,6 +265,29 @@ export function paysOf(p) {
   return c;
 }
 export const withZone = (p) => ({ ...p, zone_calc: zoneOf(p), pays_calc: paysOf(p) });
+
+export const domainOfSite = (site) => (site || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/[/?#].*$/, '');
+// Site web relevé sur la page compte Sales Navigator → domaine de l'entreprise, partagé par tous ses prospects.
+export function upsertCompany(db, { entrepriseUrl, nom, site }) {
+  const domaine = domainOfSite(site);
+  db.prepare(`INSERT INTO entreprises(entreprise_url, nom, site, domaine, maj) VALUES (@u, @nom, @site, @domaine, @maj)
+    ON CONFLICT(entreprise_url) DO UPDATE SET nom = COALESCE(NULLIF(excluded.nom, ''), entreprises.nom), site = excluded.site, domaine = excluded.domaine, maj = excluded.maj`)
+    .run({ u: entrepriseUrl, nom: nom || '', site: site || '', domaine, maj: new Date().toISOString() });
+  return domaine;
+}
+// Nom complet retrouvé (slug LinkedIn, page profil) pour une fiche dont Sales Navigator masquait le nom (« Mark K. »).
+export const isTruncatedName = (nom) => /^[A-Za-zÀ-ÿ]\.?$/.test((nom || '').trim());
+export function fixName(db, id, nomComplet) {
+  const row = db.prepare('SELECT prenom, nom FROM prospects WHERE id = ?').get(id);
+  if (!row || !isTruncatedName(row.nom)) return false;
+  const parts = (nomComplet || '').trim().split(/\s+/);
+  if (parts.length < 2) return false;
+  const nom = parts.slice(1).join(' ');
+  if (isTruncatedName(nom) || nom[0].toLowerCase() !== (row.nom || '')[0].toLowerCase()) return false;
+  db.prepare('UPDATE prospects SET prenom = ?, nom = ?, nom_complet = ?, nom_norm = ?, updated_at = ? WHERE id = ?')
+    .run(parts[0], nom, parts.join(' '), normName(parts.join(' ')), new Date().toISOString(), id);
+  return true;
+}
 
 export function updateProspect(db, id, patch, who) {
   const current = db.prepare('SELECT * FROM prospects WHERE id = ?').get(id);

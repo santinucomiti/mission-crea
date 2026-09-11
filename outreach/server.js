@@ -5,7 +5,7 @@ import { mkdir, readFile, rm, stat } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
 import { basename, extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { openDb, upsertProspects, updateProspect, markContactedByNames, findByProfile, normName, withZone, zoneOf } from './db.js';
+import { openDb, upsertProspects, updateProspect, markContactedByNames, findByProfile, normName, withZone, zoneOf, upsertCompany, fixName, isTruncatedName } from './db.js';
 import { parseCsv, mapRow, fromLeadInfo } from './csv.js';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
@@ -233,6 +233,25 @@ async function api(req, res, url) {
 
   // ---- synchro extension ----
   // Page linkedin.com/in/… : retrouve la fiche et y enregistre le contexte du profil (texte).
+  // Page compte Sales Navigator : site web de l'entreprise → domaine pour l'enrichissement e-mail.
+  if (path === '/sync/company' && method === 'POST') {
+    const b = await readJson(req);
+    const entrepriseUrl = String(b.entrepriseUrl || '').replace(/[?#].*$/, '').replace(/\/$/, '');
+    if (!/\/sales\/company\/\d+$/.test(entrepriseUrl)) return json(res, 400, { error: 'entrepriseUrl invalide' });
+    const domaine = upsertCompany(db, { entrepriseUrl, nom: b.nom, site: b.site });
+    const n = db.prepare('SELECT COUNT(*) AS n FROM prospects WHERE entreprise_url = ?').get(entrepriseUrl).n;
+    return json(res, 200, { ok: true, domaine, prospects: n });
+  }
+  // Nom complet retrouvé pour des fiches au nom masqué : [{id, nomComplet, linkedinUrl}]
+  if (path === '/sync/names' && method === 'POST') {
+    const { items } = await readJson(req);
+    let fixed = 0;
+    for (const it of Array.isArray(items) ? items.slice(0, 500) : []) {
+      if (it.id && it.nomComplet && fixName(db, it.id, it.nomComplet)) fixed++;
+      if (it.id && it.linkedinUrl) db.prepare("UPDATE prospects SET linkedin_url = COALESCE(NULLIF(linkedin_url, ''), ?) WHERE id = ?").run(String(it.linkedinUrl).replace(/[?#].*$/, ''), it.id);
+    }
+    return json(res, 200, { fixed });
+  }
   if (path === '/sync/profile' && method === 'POST') {
     const b = await readJson(req);
     const url = String(b.url || '').replace(/[?#].*$/, '').replace(/\/$/, '');
@@ -248,6 +267,7 @@ async function api(req, res, url) {
       row = db.prepare('SELECT * FROM prospects WHERE id = ?').get(id);
     }
     if (!row) return json(res, 404, { found: false });
+    if (b.slugNom && isTruncatedName(row.nom)) fixName(db, row.id, b.slugNom);
     const now = new Date().toISOString();
     db.prepare(`UPDATE prospects SET linkedin_url = COALESCE(NULLIF(linkedin_url, ''), @url),
       titre = CASE WHEN titre IS NULL OR titre = '' THEN @titre ELSE titre END,
@@ -285,11 +305,11 @@ async function api(req, res, url) {
 
   if (path === '/export.csv' && method === 'GET') {
     const rows = db.prepare(`
-      SELECT p.*, (SELECT COUNT(*) FROM files f WHERE f.prospect_id = p.id) AS nb_fichiers
-      FROM prospects p ORDER BY p.nom_complet COLLATE NOCASE`).all().map(withZone);
+      SELECT p.*, e.domaine, (SELECT COUNT(*) FROM files f WHERE f.prospect_id = p.id) AS nb_fichiers
+      FROM prospects p LEFT JOIN entreprises e ON e.entreprise_url = p.entreprise_url ORDER BY p.nom_complet COLLATE NOCASE`).all().map(withZone);
     const cols = [
       ['nom_complet', 'Nom complet'], ['prenom', 'Prénom'], ['nom', 'Nom'], ['titre', 'Titre'], ['entreprise', 'Entreprise'],
-      ['localisation', 'Localisation'], ['pays_calc', 'Pays'], ['zone_calc', 'Zone'], ['degre', 'Degré'],
+      ['localisation', 'Localisation'], ['domaine', 'Domaine'], ['pays_calc', 'Pays'], ['zone_calc', 'Zone'], ['degre', 'Degré'],
       ['contacte', 'Contacté'], ['contacte_le', 'Contacté le'],
       ['interviewe', 'Interviewé'], ['interviewe_le', 'Interviewé le'],
       ['relance_le', 'Relance le'], ['notes', 'Notes'], ['nb_fichiers', 'Fichiers'],
@@ -310,7 +330,7 @@ async function api(req, res, url) {
   }
 
   if (path === '/prospects' && method === 'GET') {
-    return json(res, 200, db.prepare('SELECT * FROM prospects ORDER BY updated_at DESC LIMIT 5000').all().map(withZone));
+    return json(res, 200, db.prepare('SELECT p.*, e.domaine FROM prospects p LEFT JOIN entreprises e ON e.entreprise_url = p.entreprise_url ORDER BY p.updated_at DESC LIMIT 5000').all().map(withZone));
   }
 
   let m;

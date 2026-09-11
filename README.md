@@ -36,6 +36,10 @@ Expérience, Formation, certifications, extrait d'activité — visible dans la 
 LinkedIn ». La pastille en bas à droite indique le statut ; si la personne n'est pas dans le CRM,
 « Hors CRM · cliquer pour ajouter » crée la fiche.
 
+Sur une **page compte** Sales Navigator (`/sales/company/…`), l'extension relève le site web de
+l'entreprise et l'envoie au CRM : c'est le domaine qui sert ensuite à retrouver les e-mails. Sur un
+profil au nom masqué (« Mark K. »), elle récupère le nom complet dans l'adresse de la page quand il y est.
+
 Toutes les pages Sales Navigator que tu visites sont envoyées au CRM automatiquement (profil, titre, entreprise…),
 et un bouton **⬇ CSV page** exporte la page courante si besoin. Si tu fais une recherche qui n'a rien
 à voir avec la mission, clique la pastille verte **« CRM ✓ … »** en bas à droite : elle passe en

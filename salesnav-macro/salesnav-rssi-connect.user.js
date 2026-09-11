@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sales Navigator — liste + Se connecter
 // @namespace    micoti.salesnav
-// @version      0.7.0
+// @version      0.7.1
 // @description  Par prospect : ouvre « Se connecter », pré-remplit la note ([Prénom], [Nom], [Entreprise], [Titre]) et marque « contacté » dans le CRM Outreach dès le clic. Badges CRM, envoi auto des pages, export CSV. Sur linkedin.com/in/… : aspire le profil dans la fiche CRM.
 // @match        https://www.linkedin.com/sales/*
 // @match        https://www.linkedin.com/in/*
@@ -509,6 +509,10 @@
     const localisation = lines[i + 1] && !/^(·|Coordonnées|Contact info)$/i.test(lines[i + 1]) ? lines[i + 1] : '';
     const memberId = (top.id.match(/ref(ACoAA[A-Za-z0-9_-]+)Topcard/) || [])[1] || '';
     const url = location.href.replace(/[?#].*$/, '');
+    // « Mark K. » à l'écran mais /in/nicolas-aristegui/ dans l'URL : le slug garde souvent le nom complet.
+    const slug = (url.match(/\/in\/([^/]+)/) || [])[1] || '';
+    const slugParts = slug.split('-').filter((x) => /^[a-z\u00C0-\u024F]{2,}$/i.test(x));
+    const slugNom = /^\S+\s+\S\.?$/.test(name) && slugParts.length >= 2 ? slugParts.map((x) => x[0].toUpperCase() + x.slice(1)).join(' ') : '';
     const sections = [...document.querySelectorAll('main section')].filter((sec) => !sec.querySelector('section'));
     const parts = [];
     const seen = new Set();
@@ -529,7 +533,7 @@
     }
     const activite = [...document.querySelectorAll('main section')].map((sec) => norm(sec.innerText)).find((t) => /^Activité/.test(t));
     if (activite) parts.push('Activité (extrait)\n' + activite.slice(0, 1500));
-    return { url, memberId, nomComplet: name, titre, localisation, contexte: parts.join('\n\n').slice(0, 60000) };
+    return { url, memberId, nomComplet: name, slugNom, titre, localisation, contexte: parts.join('\n\n').slice(0, 60000) };
   }
 
   const profile = { busy: false, lastUrl: '', result: null, info: null };
@@ -595,6 +599,38 @@
   if (location.pathname.startsWith('/in/')) {
     profilePill();
     profileWatch();
+    document.documentElement.dataset.snMacro = 'ready';
+    return;
+  }
+
+  // ---- Page compte Sales Navigator : le site web de l'entreprise part dans le CRM (domaine e-mail) ----
+  function companyWatch() {
+    let last = '';
+    const tick = async () => {
+      const m = location.pathname.match(/^\/sales\/company\/(\d+)/);
+      if (!m) return;
+      const entrepriseUrl = 'https://www.linkedin.com/sales/company/' + m[1];
+      const a = document.querySelector('a[data-control-name="visit_company_website"]');
+      if (!a || entrepriseUrl === last) return;
+      last = entrepriseUrl;
+      if (!cfg('crmToken')) return;
+      try {
+        const r = await crm.request('POST', '/sync/company', { entrepriseUrl, nom: document.title.replace(/ \| Sales Navigator$/, ''), site: a.href });
+        const el = crmIndicatorEl();
+        el.dataset.state = 'ok'; el.textContent = `CRM ✓ site ${r.domaine || '?'} · ${r.prospects} prospect(s)`;
+      } catch (e) { log('company', e); }
+    };
+    setInterval(tick, 1500);
+  }
+  function crmIndicatorEl() {
+    let el = document.querySelector('.sn-macro-crm-indicator');
+    if (!el) { el = document.createElement('button'); el.type = 'button'; el.className = 'sn-macro-crm-indicator'; document.body.appendChild(el); }
+    return el;
+  }
+  // Sales Navigator est une application monopage : la page compte peut arriver après une navigation
+  // interne, donc la surveillance tourne toujours (elle ne fait rien hors /sales/company/).
+  companyWatch();
+  if (/^\/sales\/company\//.test(location.pathname)) {
     document.documentElement.dataset.snMacro = 'ready';
     return;
   }

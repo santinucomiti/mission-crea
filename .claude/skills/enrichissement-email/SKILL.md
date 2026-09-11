@@ -27,6 +27,11 @@ optionnelles reconnues : `domaine`, `id`, `linkedin_url`, `poste`, `pays`, `À p
 `Profil LinkedIn` (les deux dernières sont fouillées pour y trouver des e-mails écrits en clair,
 y compris `(at)` / `[dot]`). Les en-têtes du CRM (`Prénom`, `Nom`, `Entreprise`…) sont acceptés tels quels.
 
+L'export du CRM contient une colonne **Domaine** quand la page compte Sales Navigator de l'entreprise a
+été visitée avec l'extension (site web relevé automatiquement) : c'est la meilleure source, elle évite
+toute recherche web et tout homonyme. Avant un enrichissement, faire visiter les pages compte des
+entreprises concernées (à la main, ou via le parcours headless du scratchpad).
+
 Depuis le CRM : filtrer (ex. Pays → Royaume-Uni, Suivi → À contacter) puis **Exporter CSV** ; ou
 `curl -b cookie https://missioncrea.clippingatlas.com/api/export.csv` puis filtrer sur la colonne Pays.
 
