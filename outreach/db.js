@@ -61,6 +61,10 @@ function migrate(db) {
   const cols = db.prepare('PRAGMA table_info(prospects)').all().map((c) => c.name);
   if (!cols.includes('nom_norm')) db.exec('ALTER TABLE prospects ADD COLUMN nom_norm TEXT');
   if (!cols.includes('zone')) db.exec('ALTER TABLE prospects ADD COLUMN zone TEXT');
+  if (!cols.includes('notion_page_id')) {
+    db.exec('ALTER TABLE prospects ADD COLUMN notion_page_id TEXT');
+    db.exec('ALTER TABLE prospects ADD COLUMN notion_sync_at TEXT');
+  }
   if (!cols.includes('contexte_linkedin')) {
     db.exec('ALTER TABLE prospects ADD COLUMN contexte_linkedin TEXT');
     db.exec('ALTER TABLE prospects ADD COLUMN contexte_maj TEXT');

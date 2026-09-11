@@ -7,6 +7,7 @@ import { basename, extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openDb, upsertProspects, updateProspect, markContactedByNames, findByProfile, normName, withZone, zoneOf, upsertCompany, fixName, isTruncatedName } from './db.js';
 import { parseCsv, mapRow, fromLeadInfo } from './csv.js';
+import { syncNotion, notionEnabled } from './notion.js';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const PUBLIC = join(ROOT, 'public');
@@ -227,6 +228,15 @@ async function api(req, res, url) {
     });
   }
 
+  // Synchro Notion (entretiens réalisés, deux sens) — à la demande ; aussi toutes les 10 min.
+  if (path === '/notion/status' && method === 'GET') {
+    return json(res, 200, { enabled: notionEnabled(), running: notionState.running, last: notionState.last });
+  }
+  if (path === '/notion/sync' && method === 'POST') {
+    if (!notionEnabled()) return json(res, 400, { error: 'Notion non configuré (NOTION_TOKEN / NOTION_DB_ID)' });
+    if (notionState.running) return json(res, 409, { error: 'synchronisation déjà en cours' });
+    return json(res, 200, await runNotionSync(who));
+  }
   if (path === '/token' && method === 'GET') {
     return json(res, 200, { who, token: encodeURIComponent(who) + '.' + signToken(who) });
   }
@@ -420,6 +430,23 @@ async function api(req, res, url) {
   }
 
   return json(res, 404, { error: 'route inconnue' });
+}
+
+const notionState = { running: false, last: null };
+async function runNotionSync(who) {
+  notionState.running = true;
+  try {
+    const report = await syncNotion(db, { token: process.env.NOTION_TOKEN, dbId: process.env.NOTION_DB_ID, crmUrl: (process.env.NOTION_CRM_URL || 'https://missioncrea.clippingatlas.com').replace(/\/$/, ''), who, log: (l) => console.log('[notion]', l) });
+    notionState.last = { at: new Date().toISOString(), who, ...report };
+  } catch (e) {
+    console.error('[notion]', e);
+    notionState.last = { at: new Date().toISOString(), who, errors: [e.message] };
+  } finally { notionState.running = false; }
+  return notionState.last;
+}
+if (notionEnabled()) {
+  setTimeout(() => runNotionSync('auto'), 30_000);
+  setInterval(() => { if (!notionState.running) runNotionSync('auto'); }, 10 * 60_000);
 }
 
 const server = http.createServer(async (req, res) => {

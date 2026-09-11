@@ -337,7 +337,18 @@ function App() {
   const [prospects, setProspects] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [filters, setFilters] = useState({ q: '', contacte: 'all', relance: false, degre: 'all', zone: 'all' });
-  const [selectedId, setSelectedId] = useState(null);
+  const [selectedId, setSelectedId] = useState(() => decodeURIComponent((location.hash.match(/p=([^&]+)/) || [])[1] || '') || null);
+  const [notionBusy, setNotionBusy] = useState(false);
+  useEffect(() => { history.replaceState(null, '', selectedId ? '#p=' + encodeURIComponent(selectedId) : location.pathname); }, [selectedId]);
+  const syncNotion = async () => {
+    setNotionBusy(true);
+    try {
+      const r = await api('/notion/sync', { method: 'POST' });
+      toast(r.errors?.length && !r.notionRows ? 'Notion : ' + r.errors[0] : `Notion : ${r.notionRows} entretiens côté Notion · ${r.createdInNotion} créés là-bas · ${r.createdInCrm} créés ici · ${r.notesToCrm + r.notesToNotion} notes échangées${r.errors?.length ? ' · ' + r.errors.length + ' erreur(s)' : ''}`);
+      api('/prospects').then(setProspects);
+    } catch (e) { toast(e.message); }
+    setNotionBusy(false);
+  };
   const [modal, setModal] = useState(null);
   const [toastMsg, setToastMsg] = useState('');
   const toastTimer = useRef();
@@ -416,6 +427,7 @@ function App() {
       <span class="spacer"></span>
       <a class="btn" href="/api/export.csv" download>Exporter CSV</a>
       <button class="btn" onClick=${() => setModal('extension')}>Extension</button>
+      <button class="btn" disabled=${notionBusy} onClick=${syncNotion} title="Entretiens réalisés ↔ Notion « Liste de contacts »">${notionBusy ? 'Notion…' : 'Notion'}</button>
       <button class="btn" onClick=${() => setModal('templates')}>Modèles</button>
       <button class="btn primary" onClick=${() => setModal('import')}>Importer un CSV</button>
       <div class="who">
