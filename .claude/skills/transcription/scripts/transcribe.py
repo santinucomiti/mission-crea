@@ -53,11 +53,24 @@ from faster_whisper import WhisperModel  # noqa: E402
 
 t0 = time.time()
 model = WhisperModel(args.model, device=args.device, compute_type=args.compute)
+# Réglages anti-hallucination : pas de conditionnement sur le texte précédent (sinon une boucle se
+# propage sur des minutes), pénalité de répétition, rejet des fenêtres trop compressées, VAD strict.
 segments, info = model.transcribe(
     str(tmp), language=args.lang or None, beam_size=5, vad_filter=True,
-    vad_parameters={"min_silence_duration_ms": 500}, initial_prompt=initial_prompt, hotwords=hotwords,
-    condition_on_previous_text=True, word_timestamps=True,
+    vad_parameters={"min_silence_duration_ms": 700, "speech_pad_ms": 200, "threshold": 0.5},
+    initial_prompt=initial_prompt, hotwords=hotwords,
+    condition_on_previous_text=False, repetition_penalty=1.05,
+    compression_ratio_threshold=2.0, log_prob_threshold=-1.0, temperature=[0.0, 0.2, 0.4],
+    hallucination_silence_threshold=2.0, word_timestamps=True,
 )
+
+# Filtre de sortie : un segment dont le texte est une répétition d'un même bout (≥ 3 fois) est réduit.
+import re as _re
+def dedup(text):
+    for n in range(12, 1, -1):
+        text = _re.sub(r'(\b(?:\S+\s+){%d}\S+[\s,.]*)(?:\1){2,}' % (n - 1), r'\1', text)
+    text = _re.sub(r'(\b\S+\b[\s,]*)(?:\1){3,}', r'\1', text)
+    return text.strip()
 
 def ts(s):
     m, sec = divmod(int(s), 60)
@@ -68,8 +81,9 @@ out_segments = []
 lines = []
 low = 0
 for seg in segments:
-    text = seg.text.strip()
-    if not text:
+    text = dedup(seg.text.strip())
+    # Segment majoritairement hors alphabet latin (coréen, chinois…) dans un entretien fr/en = hallucination.
+    if not text or len(_re.findall(r'[^\x00-\x7F\u00C0-\u024F\u2019\u20AC\u2026«»–—]', text)) > len(text) * 0.15:
         continue
     words = [{"w": w.word, "s": round(w.start, 2), "e": round(w.end, 2), "p": round(w.probability, 2)} for w in (seg.words or [])]
     out_segments.append({"start": round(seg.start, 2), "end": round(seg.end, 2), "text": text, "avg_logprob": round(seg.avg_logprob, 3), "no_speech_prob": round(seg.no_speech_prob, 3), "words": words})

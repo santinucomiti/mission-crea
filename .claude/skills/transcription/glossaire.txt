@@ -55,3 +55,17 @@ CISSP
 X-HEC Entrepreneurs
 HEC
 Polytechnique
+TLPT
+Threat-Led Penetration Test
+0-day
+SaaS
+peer review
+due diligence
+DICA
+HDS
+analyse de risque
+GRC
+market review
+private equity
+white hat
+hardening
