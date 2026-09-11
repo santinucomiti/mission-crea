@@ -4,6 +4,16 @@ Ce fichier est le point de reprise pour une nouvelle session d'assistant IA : ce
 ça tourne, ce qui a été décidé, ce qui reste à faire. Lis-le avant de toucher à quoi que ce soit.
 Le dépôt est privé (`santinucomiti/mission-crea`, collaborateur : `remiflachaire`).
 
+## Deux dossiers, pas un
+
+- `~/Work/mission-crea/` (ce dépôt git) : CRM, extension, skill d'enrichissement, synchro Notion, outils —
+  tout le travail des sessions du 9 au 11 septembre 2026.
+- `~/Work/mission_creation/` (pas un dépôt) : reprise de la session du **7 septembre** (`HANDOFF.md`),
+  centrée Notion : purpose Fleuret AI, veille & sourcing (base « Contacts sourcés — à valider »),
+  stratégie outbound, concurrents, PhantomBuster (OAuth jamais fait), règles apprises (ne jamais
+  écrire d'e-mails/téléphones personnels dans Notion via MCP). Rien n'a été migré de l'un vers l'autre ;
+  les deux se complètent. Mémoire de cette session-là : `~/.claude/projects/-home-micoti/memory/project_fleuret_mission_creation.md`.
+
 ## Les trois personnes et le but
 
 Santinu (moi, `santinu.comiti@gmail.com`), Eva, Rémi — étudiants X-HEC Entrepreneurs. Mission :
