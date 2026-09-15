@@ -249,3 +249,10 @@ label.field > * { font-size: 14px; color: var(--ink); font-weight: 400; }
 body.ro .contact-toggle, body.ro .zone-row .seg, body.ro .field input[type="date"] { pointer-events: none; opacity: .7; }
 body.ro .notes-area { pointer-events: none; }
 body.ro .drop, body.ro .files .file-head button, body.ro .connect-btn, body.ro .mark-btn { display: none !important; }
+
+/* ---- emails (enrichissement) ---- */
+.chip.email.good { background: var(--done-soft); color: var(--done); border-color: transparent; font-family: var(--mono); }
+.chip.email.weak { background: var(--surface-2); color: var(--ink-2); border-color: var(--line); font-family: var(--mono); }
+.email-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.email-input { flex: 1; min-width: 0; padding: 6px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); color: var(--ink); font: inherit; font-size: 13px; }
+.email-meta { margin-top: 4px; }

@@ -76,6 +76,10 @@ function migrate(db) {
     db.exec('ALTER TABLE prospects ADD COLUMN contexte_linkedin TEXT');
     db.exec('ALTER TABLE prospects ADD COLUMN contexte_maj TEXT');
   }
+  // Emails trouvés par le skill enrichissement-email (confiance A-D, statut, pattern, source, vérification).
+  if (!cols.includes('email')) {
+    for (const c of ['email', 'email_confiance', 'email_statut', 'email_pattern', 'email_source', 'email_verifie', 'email_catch_all', 'email_note', 'email_maj']) db.exec(`ALTER TABLE prospects ADD COLUMN ${c} TEXT`);
+  }
   if (!cols.includes('interviewe')) {
     db.exec('ALTER TABLE prospects ADD COLUMN interviewe INTEGER NOT NULL DEFAULT 0');
     db.exec('ALTER TABLE prospects ADD COLUMN interviewe_le TEXT');
@@ -256,7 +260,7 @@ export function findByProfile(db, { url, memberId, nomComplet }) {
   return keep;
 }
 
-export const EDITABLE = ['contacte', 'interviewe', 'notes', 'relance_le', 'linkedin_url', 'zone'];
+export const EDITABLE = ['contacte', 'interviewe', 'notes', 'relance_le', 'linkedin_url', 'zone', 'email'];
 
 // Zone déduite de la localisation Sales Navigator ; `zone` en base est une surcharge manuelle (FR / INT).
 const FR_PLACES = /\bFrance\b|Île-de-France|Ile-de-France|\bParis\b|\bLyon\b|\bMarseille\b|\bBordeaux\b|\bLille\b|\bToulouse\b|\bNantes\b|\bStrasbourg\b|\bRennes\b|\bNice\b|\bMontpellier\b|\bGrenoble\b|\bRouen\b|\bReims\b|\bDijon\b|\bTours\b|\bOrléans\b|\bNancy\b|\bMetz\b|\bAngers\b|\bCaen\b|\bBrest\b|\bLe Havre\b|\bToulon\b|\bNîmes\b|\bClermont-Ferrand\b|\bLimoges\b|\bPerpignan\b|\bAix-en-Provence\b|\bAnnecy\b|\bSophia Antipolis\b|Auvergne-Rhône-Alpes|Occitanie|Bretagne|Normandie|Provence-Alpes|Nouvelle-Aquitaine|Hauts-de-France|Grand Est|Pays de la Loire|Bourgogne-Franche-Comté|Centre-Val de Loire|\bCorse\b|Guadeloupe|Martinique|La Réunion|\bRéunion\b|Guyane|Mayotte|Nouvelle-Calédonie|Polynésie/i;

@@ -65,6 +65,14 @@ function ContactChip({ p }) {
     : html`<span class="chip todo">À contacter</span>`;
 }
 
+// Email trouvé par l'enrichissement : A vérifié, B pattern confirmé, C plausible, D douteux.
+const EMAIL_LABEL = { A: 'vérifié', B: 'pattern confirmé', C: 'plausible', D: 'douteux' };
+function EmailChip({ p }) {
+  if (!p.email) return null;
+  const c = p.email_confiance || '';
+  return html`<span class=${'chip email ' + (c === 'A' || c === 'B' ? 'good' : 'weak')} title=${`${p.email} · confiance ${c || '?'} (${EMAIL_LABEL[c] || 'inconnue'})${p.email_catch_all === 'oui' ? ' · domaine catch-all' : ''}`}>@ ${c || '?'}</span>`;
+}
+
 function RelanceChip({ p }) {
   const st = relanceState(p);
   if (!st) return null;
@@ -378,6 +386,14 @@ function Detail({ p, people, templates, onPatch, onClose, toast }) {
         ${p.profil_url && html`<a class="btn" href=${p.profil_url} target="_blank" rel="noopener">Ouvrir dans Sales Navigator</a>`}
         <a class="btn" href=${linkedinProfileUrl(p).href} target="_blank" rel="noopener">${linkedinProfileUrl(p).label}</a>
       </div>
+      <div class="email-row">
+        <span class="muted tiny">Email</span>
+        <input class="email-input" type="email" placeholder="inconnu — saisir ou laisser l'enrichissement le trouver" value=${p.email || ''}
+          onChange=${(e) => patch({ email: e.target.value.trim() })} />
+        ${p.email && html`<a class="btn small" href=${'mailto:' + p.email}>Écrire</a>
+          <button class="btn ghost small" onClick=${async () => toast((await copyText(p.email)) ? 'Email copié' : 'Copie impossible')}>Copier</button>`}
+      </div>
+      ${p.email && html`<div class="muted tiny email-meta">Confiance ${p.email_confiance || '?'} · ${EMAIL_LABEL[p.email_confiance] || 'origine manuelle'}${p.email_pattern ? ' · pattern ' + p.email_pattern : ''}${p.email_verifie ? ' · vérification : ' + p.email_verifie : ''}${p.email_catch_all === 'oui' ? ' · domaine catch-all (accepte tout, non prouvable)' : ''}${p.email_note ? ' · ' + p.email_note : ''}</div>`}
       <label class="contact-toggle">
         <input type="checkbox" checked=${!!p.contacte} onChange=${(e) => patch({ contacte: e.target.checked })} />
         <span><b>Contacté</b>${p.contacte && p.contacte_le ? html` <span class="muted tiny">le ${fmtDateTime(p.contacte_le)}</span>` : ''}</span>
@@ -437,7 +453,7 @@ function App() {
   const [ro, setRo] = useState(false);
   const [prospects, setProspects] = useState([]);
   const [templates, setTemplates] = useState([]);
-  const [filters, setFilters] = useState({ q: '', contacte: 'all', relance: false, degre: 'all', zone: 'all' });
+  const [filters, setFilters] = useState({ q: '', contacte: 'all', relance: false, degre: 'all', zone: 'all', email: 'all' });
   const [selectedId, setSelectedId] = useState(() => decodeURIComponent((location.hash.match(/p=([^&]+)/) || [])[1] || '') || null);
   const [notionBusy, setNotionBusy] = useState(false);
   useEffect(() => { history.replaceState(null, '', selectedId ? '#p=' + encodeURIComponent(selectedId) : location.pathname); }, [selectedId]);
@@ -487,8 +503,9 @@ function App() {
   };
 
   const counts = useMemo(() => {
-    const c = { total: prospects.length, contacte: 0, aContacter: 0, interviewe: 0, relance: 0, degre: {}, zone: { FR: 0, INT: 0, '': 0 }, pays: {} };
+    const c = { total: prospects.length, contacte: 0, aContacter: 0, interviewe: 0, relance: 0, degre: {}, zone: { FR: 0, INT: 0, '': 0 }, pays: {}, email: 0, emailAB: 0 };
     for (const p of prospects) {
+      if (p.email) { c.email++; if (p.email_confiance === 'A' || p.email_confiance === 'B') c.emailAB++; }
       if (p.contacte) c.contacte++; else c.aContacter++;
       if (p.interviewe) c.interviewe++;
       c.zone[p.zone_calc || ''] = (c.zone[p.zone_calc || ''] || 0) + 1;
@@ -509,8 +526,10 @@ function App() {
         if (filters.contacte === 'interviewe' && !p.interviewe) return false;
         if (filters.zone !== 'all' && (p.pays_calc || '') !== filters.zone) return false;
         if (filters.degre !== 'all' && p.degre !== filters.degre) return false;
+        if (filters.email === 'oui' && !p.email) return false;
+        if (filters.email === 'ab' && !(p.email && (p.email_confiance === 'A' || p.email_confiance === 'B'))) return false;
         if (filters.relance) { const rs = relanceState(p); if (rs !== 'due' && rs !== 'overdue') return false; }
-        if (q && !norm([p.nom_complet, p.titre, p.entreprise, p.localisation, p.notes].join(' ')).includes(q)) return false;
+        if (q && !norm([p.nom_complet, p.titre, p.entreprise, p.localisation, p.notes, p.email].join(' ')).includes(q)) return false;
         return true;
       })
       .sort((a, b) => (a.contacte - b.contacte) || (a.interviewe - b.interviewe) || (zoneRank(a) - zoneRank(b)) || (relanceRank(a) - relanceRank(b)) || a.nom_complet.localeCompare(b.nom_complet, 'fr'));
@@ -547,6 +566,10 @@ function App() {
         <button class=${'row' + (filters.contacte === 'interviewe' && !filters.relance ? ' active' : '')} onClick=${() => set({ contacte: 'interviewe', relance: false })}>Interviewés <span class="n">${counts.interviewe}</span></button>
         <button class=${'row' + (filters.relance ? ' active' : '')} onClick=${() => set({ relance: !filters.relance, contacte: 'all' })}>Relances dues <span class="n">${counts.relance}</span></button>
 
+        <h3>Email</h3>
+        <button class=${'row' + (filters.email === 'all' ? ' active' : '')} onClick=${() => set({ email: 'all' })}>Tous <span class="n">${counts.total}</span></button>
+        <button class=${'row' + (filters.email === 'oui' ? ' active' : '')} onClick=${() => set({ email: 'oui' })}>Avec email <span class="n">${counts.email}</span></button>
+        <button class=${'row' + (filters.email === 'ab' ? ' active' : '')} onClick=${() => set({ email: 'ab' })} title="Confiance A ou B : vérifié ou pattern confirmé">Email fiable <span class="n">${counts.emailAB}</span></button>
         <h3>Pays</h3>
         <button class=${'row' + (filters.zone === 'all' ? ' active' : '')} onClick=${() => set({ zone: 'all' })}>Tous <span class="n">${counts.total}</span></button>
         ${Object.entries(counts.pays).filter(([k]) => k).sort((a, b) => (a[0] === 'France' ? -1 : b[0] === 'France' ? 1 : b[1] - a[1] || a[0].localeCompare(b[0], 'fr'))).map(([k, n]) => html`<button class=${'row' + (filters.zone === k ? ' active' : '')} onClick=${() => set({ zone: k })}>${k === 'France' ? 'France' : '🌍 ' + k} <span class="n">${n}</span></button>`)}
@@ -560,7 +583,7 @@ function App() {
       <main class="main">
         <div class="list-head">
           <span class="count">${visible.length} prospect${visible.length > 1 ? 's' : ''}</span>
-          ${(filters.q || filters.contacte !== 'all' || filters.degre !== 'all' || filters.zone !== 'all' || filters.relance) && html`<button class="btn ghost small" onClick=${() => setFilters({ q: '', contacte: 'all', relance: false, degre: 'all', zone: 'all' })}>Effacer les filtres</button>`}
+          ${(filters.q || filters.contacte !== 'all' || filters.degre !== 'all' || filters.zone !== 'all' || filters.relance || filters.email !== 'all') && html`<button class="btn ghost small" onClick=${() => setFilters({ q: '', contacte: 'all', relance: false, degre: 'all', zone: 'all', email: 'all' })}>Effacer les filtres</button>`}
         </div>
         ${prospects.length === 0
           ? html`<div class="empty"><h2>Aucun prospect pour l’instant</h2><p>Importe les CSV exportés depuis Sales Navigator avec le bouton « ⬇ CSV page ».</p><button class="btn primary" onClick=${() => setModal('import')}>Importer un CSV</button></div>`
@@ -579,7 +602,7 @@ function App() {
                     ${p.notes && html`<span title=${p.notes}>📝 note</span>`}
                   </div>
                 </div>
-                <div class="chips"><${ContactChip} p=${p} />${p.zone_calc === 'INT' && html`<span class="chip intl" title=${p.localisation}>🌍 ${p.pays_calc}</span>`}<${RelanceChip} p=${p} /></div>
+                <div class="chips"><${ContactChip} p=${p} />${p.zone_calc === 'INT' && html`<span class="chip intl" title=${p.localisation}>🌍 ${p.pays_calc}</span>`}<${EmailChip} p=${p} /><${RelanceChip} p=${p} /></div>
               </article>`)}</div>`}
       </main>
 
