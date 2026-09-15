@@ -43,6 +43,68 @@ async function copyText(text) {
   try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
 }
 
+// ---------- e-mail : niveaux de confiance ----------
+// Calculés par le script d'enrichissement (~/enrich) et poussés dans le CRM par upsert-crm.mjs. Jamais devinés :
+// sans témoin réel sur le domaine, aucune adresse n'est générée. Une adresse D (refusée) n'est pas conservée.
+const EMAIL_TIERS = {
+  A: { short: 'Observée (témoin réel) ou vérifiée « valid » — prête à l’envoi.', title: 'A — adresse observée (témoin réel) ou pattern confirmé + vérifiée « valid » → envoyer' },
+  B: { short: 'Pattern du domaine confirmé ; non vérifiable (catch-all) ou pas encore vérifiée — envoyable.', title: 'B — pattern confirmé (≥ 2 témoins), catch-all ou non vérifiée → envoyer' },
+  C: { short: 'Pattern probable (1 seul témoin), non vérifiée — volume réduit, ou re-vérifier avant.', title: 'C — pattern probable (1 témoin), non vérifiée → volume réduit' },
+  D: { short: 'Refusée par le vérificateur — non conservée.', title: 'D — refusée par le vérificateur → jamais' },
+};
+const EMAIL_LEGEND = [
+  ['A', 'Adresse observée (témoin réel : site, GitHub, profil) ou pattern confirmé puis vérifiée « valid » par le vérificateur.', 'Envoyer.'],
+  ['B', 'Pattern du domaine confirmé par ≥ 2 témoins, mais adresse non vérifiable (domaine catch-all) ou pas encore vérifiée (quota du jour).', 'Envoyer.'],
+  ['C', 'Pattern probable (1 seul témoin), adresse non vérifiée.', 'Volume réduit, ou re-vérifier avant d’envoyer.'],
+  ['D', 'Adresse générée puis refusée par le vérificateur. Elle n’est pas conservée.', 'Jamais.'],
+  ['—', 'Non trouvé : aucun témoin fiable, nom masqué, domaine inconnu, catch-all sans témoin… La raison est indiquée sur la fiche.', 'À obtenir autrement : LinkedIn, Hunter, page compte Sales Navigator, à la main.'],
+];
+const emailBucket = (p) => (p.email_statut === 'trouvé' && p.email ? (p.email_confiance === 'C' ? 'C' : 'ready') : p.email_statut === 'non trouvé' ? 'none' : 'pending');
+
+function EmailChip({ p }) {
+  if (p.email_statut === 'trouvé' && p.email) return html`<span class=${'chip mail-' + p.email_confiance} title=${(EMAIL_TIERS[p.email_confiance]?.title || '') + '\n' + p.email}>@ ${p.email_confiance}</span>`;
+  if (p.email_statut === 'non trouvé') return html`<span class=${'chip ' + (p.email_confiance === 'D' ? 'mail-D' : 'mail-none')} title=${p.email_note || 'e-mail non trouvé'}>@ ${p.email_confiance === 'D' ? 'D' : '—'}</span>`;
+  return null;
+}
+
+function EmailSection({ p, legend, setLegend, toast, patch }) {
+  const found = p.email_statut === 'trouvé' && p.email;
+  const tier = EMAIL_TIERS[p.email_confiance];
+  const [edit, setEdit] = useState(false);
+  const [draft, setDraft] = useState(p.email || '');
+  useEffect(() => { setEdit(false); setDraft(p.email || ''); }, [p.id]);
+  const save = () => { patch({ email: draft.trim() }); setEdit(false); };
+  const manual = html`<div class="email-row">
+    <input class="email-input" type="email" placeholder="prenom.nom@entreprise.com" value=${draft} onInput=${(e) => setDraft(e.target.value)} onKeyDown=${(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEdit(false); }} />
+    <button class="btn small primary" onClick=${save}>Enregistrer</button>
+    <button class="btn ghost small" onClick=${() => setEdit(false)}>Annuler</button>
+  </div>`;
+  return html`<section>
+    <h3>E-mail <button class="btn ghost small help" type="button" title="Comprendre les niveaux A / B / C / D" aria-expanded=${legend ? 'true' : 'false'} onClick=${() => setLegend(!legend)}>?</button></h3>
+    ${found ? html`
+      <div class="email-row">
+        <span class="mono email-addr">${p.email}</span>
+        <span class=${'chip mail-' + p.email_confiance} title=${tier?.title || ''}>${p.email_confiance}</span>
+        <button class="btn small" onClick=${async () => toast((await copyText(p.email)) ? 'E-mail copié' : 'Copie impossible')}>Copier</button>
+        <a class="btn small" href=${'mailto:' + p.email}>Écrire</a>
+        <button class="btn ghost small" onClick=${() => setEdit(!edit)}>Corriger</button>
+      </div>
+      ${edit && manual}
+      <div class="muted tiny">${tier?.short || ''}${p.email_note ? ' · ' + p.email_note : ''}</div>
+      <div class="muted tiny mono">pattern ${p.email_pattern || '—'} · source ${p.email_source || '—'} · vérifiée : ${p.email_verifie || '—'}${p.email_catch_all === 'oui' ? ' · domaine catch-all' : ''} · ${fmtDate(p.email_maj)}</div>`
+    : p.email_statut === 'non trouvé' ? html`
+      <div class="email-row"><span class=${'chip ' + (p.email_confiance === 'D' ? 'mail-D' : 'mail-none')} title=${p.email_confiance === 'D' ? EMAIL_TIERS.D.title : 'Aucune adresse fiable — à obtenir autrement'}>${p.email_confiance === 'D' ? 'D · refusée' : 'Non trouvé'}</span><span class="muted tiny">${fmtDate(p.email_maj)}</span></div>
+      <div class="muted tiny">${p.email_note || ''}</div>
+      ${edit ? manual : html`<button class="btn ghost small" onClick=${() => setEdit(true)}>Saisir à la main</button>`}`
+    : html`<div class="muted tiny">Pas encore enrichi — visiter la page compte Sales Navigator (extension), puis lancer l’enrichissement.</div>
+      ${edit ? manual : html`<button class="btn ghost small" onClick=${() => setEdit(true)}>Saisir à la main</button>`}`}
+    ${legend && html`<div class="legend" role="note">
+      <div class="lg head"><span></span><span>Le script ne devine jamais : sans témoin réel sur le domaine, il ne génère rien.</span></div>
+      ${EMAIL_LEGEND.map(([k, what, use]) => html`<div class="lg" key=${k}><span class=${'chip mail-' + (k.length === 1 && k !== '—' ? k : 'none')}>${k}</span><span>${what} <span class="use">→ ${use}</span></span></div>`)}
+    </div>`}
+  </section>`;
+}
+
 // ---------- composants ----------
 // Initiales toujours rendues sous la photo : si l'image manque ou est bloquée, la mise en page ne bouge pas.
 function Avatar({ p, size }) {
@@ -63,14 +125,6 @@ function ContactChip({ p }) {
   return p.contacte
     ? html`<span class="chip done">✓ Contacté</span>`
     : html`<span class="chip todo">À contacter</span>`;
-}
-
-// Email trouvé par l'enrichissement : A vérifié, B pattern confirmé, C plausible, D douteux.
-const EMAIL_LABEL = { A: 'vérifié', B: 'pattern confirmé', C: 'plausible', D: 'douteux' };
-function EmailChip({ p }) {
-  if (!p.email) return null;
-  const c = p.email_confiance || '';
-  return html`<span class=${'chip email ' + (c === 'A' || c === 'B' ? 'good' : 'weak')} title=${`${p.email} · confiance ${c || '?'} (${EMAIL_LABEL[c] || 'inconnue'})${p.email_catch_all === 'oui' ? ' · domaine catch-all' : ''}`}>@ ${c || '?'}</span>`;
 }
 
 function RelanceChip({ p }) {
@@ -345,6 +399,7 @@ function Detail({ p, people, templates, onPatch, onClose, toast }) {
   const [msg, setMsg] = useState('');
   const [notes, setNotes] = useState(p.notes || '');
   const [tab, setTab] = useState('fiche');
+  const [legend, setLegend] = useState(false);
   const notesTimer = useRef();
   useEffect(() => { setNotes(p.notes || ''); }, [p.id]);
   useEffect(() => {
@@ -386,14 +441,6 @@ function Detail({ p, people, templates, onPatch, onClose, toast }) {
         ${p.profil_url && html`<a class="btn" href=${p.profil_url} target="_blank" rel="noopener">Ouvrir dans Sales Navigator</a>`}
         <a class="btn" href=${linkedinProfileUrl(p).href} target="_blank" rel="noopener">${linkedinProfileUrl(p).label}</a>
       </div>
-      <div class="email-row">
-        <span class="muted tiny">Email</span>
-        <input class="email-input" type="email" placeholder="inconnu — saisir ou laisser l'enrichissement le trouver" value=${p.email || ''}
-          onChange=${(e) => patch({ email: e.target.value.trim() })} />
-        ${p.email && html`<a class="btn small" href=${'mailto:' + p.email}>Écrire</a>
-          <button class="btn ghost small" onClick=${async () => toast((await copyText(p.email)) ? 'Email copié' : 'Copie impossible')}>Copier</button>`}
-      </div>
-      ${p.email && html`<div class="muted tiny email-meta">Confiance ${p.email_confiance || '?'} · ${EMAIL_LABEL[p.email_confiance] || 'origine manuelle'}${p.email_pattern ? ' · pattern ' + p.email_pattern : ''}${p.email_verifie ? ' · vérification : ' + p.email_verifie : ''}${p.email_catch_all === 'oui' ? ' · domaine catch-all (accepte tout, non prouvable)' : ''}${p.email_note ? ' · ' + p.email_note : ''}</div>`}
       <label class="contact-toggle">
         <input type="checkbox" checked=${!!p.contacte} onChange=${(e) => patch({ contacte: e.target.checked })} />
         <span><b>Contacté</b>${p.contacte && p.contacte_le ? html` <span class="muted tiny">le ${fmtDateTime(p.contacte_le)}</span>` : ''}</span>
@@ -415,6 +462,8 @@ function Detail({ p, people, templates, onPatch, onClose, toast }) {
         </label>
       </div>
     </section>
+
+    <${EmailSection} p=${p} legend=${legend} setLegend=${setLegend} toast=${toast} patch=${patch} />
 
     <section>
       <h3>Message</h3>
@@ -503,9 +552,9 @@ function App() {
   };
 
   const counts = useMemo(() => {
-    const c = { total: prospects.length, contacte: 0, aContacter: 0, interviewe: 0, relance: 0, degre: {}, zone: { FR: 0, INT: 0, '': 0 }, pays: {}, email: 0, emailAB: 0 };
+    const c = { total: prospects.length, contacte: 0, aContacter: 0, interviewe: 0, relance: 0, degre: {}, zone: { FR: 0, INT: 0, '': 0 }, pays: {}, email: { ready: 0, C: 0, none: 0, pending: 0 } };
     for (const p of prospects) {
-      if (p.email) { c.email++; if (p.email_confiance === 'A' || p.email_confiance === 'B') c.emailAB++; }
+      c.email[emailBucket(p)]++;
       if (p.contacte) c.contacte++; else c.aContacter++;
       if (p.interviewe) c.interviewe++;
       c.zone[p.zone_calc || ''] = (c.zone[p.zone_calc || ''] || 0) + 1;
@@ -526,9 +575,8 @@ function App() {
         if (filters.contacte === 'interviewe' && !p.interviewe) return false;
         if (filters.zone !== 'all' && (p.pays_calc || '') !== filters.zone) return false;
         if (filters.degre !== 'all' && p.degre !== filters.degre) return false;
-        if (filters.email === 'oui' && !p.email) return false;
-        if (filters.email === 'ab' && !(p.email && (p.email_confiance === 'A' || p.email_confiance === 'B'))) return false;
         if (filters.relance) { const rs = relanceState(p); if (rs !== 'due' && rs !== 'overdue') return false; }
+        if (filters.email !== 'all' && emailBucket(p) !== filters.email) return false;
         if (q && !norm([p.nom_complet, p.titre, p.entreprise, p.localisation, p.notes, p.email].join(' ')).includes(q)) return false;
         return true;
       })
@@ -566,10 +614,13 @@ function App() {
         <button class=${'row' + (filters.contacte === 'interviewe' && !filters.relance ? ' active' : '')} onClick=${() => set({ contacte: 'interviewe', relance: false })}>Interviewés <span class="n">${counts.interviewe}</span></button>
         <button class=${'row' + (filters.relance ? ' active' : '')} onClick=${() => set({ relance: !filters.relance, contacte: 'all' })}>Relances dues <span class="n">${counts.relance}</span></button>
 
-        <h3>Email</h3>
+        <h3>E-mail</h3>
         <button class=${'row' + (filters.email === 'all' ? ' active' : '')} onClick=${() => set({ email: 'all' })}>Tous <span class="n">${counts.total}</span></button>
-        <button class=${'row' + (filters.email === 'oui' ? ' active' : '')} onClick=${() => set({ email: 'oui' })}>Avec email <span class="n">${counts.email}</span></button>
-        <button class=${'row' + (filters.email === 'ab' ? ' active' : '')} onClick=${() => set({ email: 'ab' })} title="Confiance A ou B : vérifié ou pattern confirmé">Email fiable <span class="n">${counts.emailAB}</span></button>
+        <button class=${'row' + (filters.email === 'ready' ? ' active' : '')} onClick=${() => set({ email: 'ready' })} title="Adresses A ou B — prêtes à l’envoi">Prêts (A · B) <span class="n">${counts.email.ready}</span></button>
+        <button class=${'row' + (filters.email === 'C' ? ' active' : '')} onClick=${() => set({ email: 'C' })} title="Pattern probable, non vérifié — volume réduit">À re-vérifier (C) <span class="n">${counts.email.C}</span></button>
+        <button class=${'row' + (filters.email === 'none' ? ' active' : '')} onClick=${() => set({ email: 'none' })} title="Non trouvé — la raison est sur la fiche : à obtenir autrement">Non trouvé <span class="n">${counts.email.none}</span></button>
+        <button class=${'row' + (filters.email === 'pending' ? ' active' : '')} onClick=${() => set({ email: 'pending' })} title="Pas encore passé par l’enrichissement">Non enrichi <span class="n">${counts.email.pending}</span></button>
+
         <h3>Pays</h3>
         <button class=${'row' + (filters.zone === 'all' ? ' active' : '')} onClick=${() => set({ zone: 'all' })}>Tous <span class="n">${counts.total}</span></button>
         ${Object.entries(counts.pays).filter(([k]) => k).sort((a, b) => (a[0] === 'France' ? -1 : b[0] === 'France' ? 1 : b[1] - a[1] || a[0].localeCompare(b[0], 'fr'))).map(([k, n]) => html`<button class=${'row' + (filters.zone === k ? ' active' : '')} onClick=${() => set({ zone: k })}>${k === 'France' ? 'France' : '🌍 ' + k} <span class="n">${n}</span></button>`)}
@@ -602,7 +653,7 @@ function App() {
                     ${p.notes && html`<span title=${p.notes}>📝 note</span>`}
                   </div>
                 </div>
-                <div class="chips"><${ContactChip} p=${p} />${p.zone_calc === 'INT' && html`<span class="chip intl" title=${p.localisation}>🌍 ${p.pays_calc}</span>`}<${EmailChip} p=${p} /><${RelanceChip} p=${p} /></div>
+                <div class="chips"><${ContactChip} p=${p} /><${EmailChip} p=${p} />${p.zone_calc === 'INT' && html`<span class="chip intl" title=${p.localisation}>🌍 ${p.pays_calc}</span>`}<${RelanceChip} p=${p} /></div>
               </article>`)}</div>`}
       </main>
 

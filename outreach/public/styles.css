@@ -89,9 +89,28 @@ label.field > * { font-size: 14px; color: var(--ink); font-weight: 400; }
 .chip.person .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c, var(--ink-3)); }
 .chip.due { background: #FEF3C7; color: #92400E; }
 .chip.overdue { background: #FEE2E2; color: #991B1B; }
+/* ---- e-mail : niveaux de confiance A / B / C / D ---- */
+.chip.mail-A { background: var(--done-soft); color: var(--done); }
+.chip.mail-B { background: var(--accent-soft); color: var(--accent); }
+.chip.mail-C { background: #FEF3C7; color: #92400E; }
+.chip.mail-D { background: #FEE2E2; color: #991B1B; }
+.chip.mail-none { background: var(--surface-2); border-color: var(--line); color: var(--ink-2); }
+.email-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.email-addr { font-size: 14px; user-select: all; }
+.email-input { flex: 1; min-width: 200px; padding: 6px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); color: var(--ink); font: inherit; font-size: 13px; }
+body.ro .email-row .btn, body.ro .email-row + .btn { display: none; }
+.help { width: 22px; height: 22px; padding: 0; justify-content: center; border-radius: 50%; border: 1px solid var(--line); font-weight: 600; color: var(--ink-2); margin-left: 6px; text-transform: none; letter-spacing: 0; }
+.help[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.legend { display: grid; gap: 8px; padding: 10px 12px; background: var(--surface-2); border-radius: var(--radius); font-size: 13px; line-height: 1.45; }
+.legend .lg { display: grid; grid-template-columns: 30px 1fr; gap: 10px; align-items: start; }
+.legend .lg.head { color: var(--ink-2); font-style: italic; }
+.legend .lg .chip { justify-content: center; }
+.legend .use { color: var(--ink-3); }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .chip.due { background: #3B2F0B; color: #FCD34D; }
   :root:not([data-theme="light"]) .chip.overdue { background: #3F1414; color: #FCA5A5; }
+  :root:not([data-theme="light"]) .chip.mail-C { background: #3B2F0B; color: #FCD34D; }
+  :root:not([data-theme="light"]) .chip.mail-D { background: #3F1414; color: #FCA5A5; }
 }
 
 /* ---- structure ---- */
@@ -249,10 +268,3 @@ label.field > * { font-size: 14px; color: var(--ink); font-weight: 400; }
 body.ro .contact-toggle, body.ro .zone-row .seg, body.ro .field input[type="date"] { pointer-events: none; opacity: .7; }
 body.ro .notes-area { pointer-events: none; }
 body.ro .drop, body.ro .files .file-head button, body.ro .connect-btn, body.ro .mark-btn { display: none !important; }
-
-/* ---- emails (enrichissement) ---- */
-.chip.email.good { background: var(--done-soft); color: var(--done); border-color: transparent; font-family: var(--mono); }
-.chip.email.weak { background: var(--surface-2); color: var(--ink-2); border-color: var(--line); font-family: var(--mono); }
-.email-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
-.email-input { flex: 1; min-width: 0; padding: 6px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); color: var(--ink); font: inherit; font-size: 13px; }
-.email-meta { margin-top: 4px; }

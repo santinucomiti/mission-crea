@@ -1,17 +1,7 @@
 ---
 name: enrichissement-email
-description: Trouver et vérifier les e-mails professionnels des prospects du CRM Mission Créa (RSSI/CISO, UK en priorité) — domaine → témoins → pattern → génération → vérification → confiance A/B/C/D → upsert CRM. La version en production (v5) tourne sur le VPS dans /home/ubuntu/enrich ; ce dossier en est le miroir versionné (vps-enrich/). L'ancienne procédure laptop est dans SKILL.v2-laptop.md.
+description: v5 — Trouver et vérifier les e-mails professionnels des prospects du CRM Mission Créa (RSSI/DSI, UK en priorité), entreprise par entreprise, sans coût récurrent — domaine (page compte Sales Nav ou résolveur + agents) → témoins → pattern → génération → vérification → confiance A/B/C/D → upsert CRM → rapport. Procédure mécanique, exécutable par un petit modèle. Version 5 (2026-09-12), remplace la v2.
 ---
-
-# Où ça tourne, où c'est versionné
-
-- **Production : VPS `vps`, dossier `/home/ubuntu/enrich`** (scripts Node sans dépendance, état `smoke-uk/etat-v3.json`, `.env` avec les clés MyEmailVerifier / GitHub / Brave — jamais dans le dépôt). Écrit directement dans la base du CRM `/home/ubuntu/outreach/data/outreach.sqlite` (colonnes `email_*`), visible dans le CRM (puce `@ A/B/C/D`, section E-mail, filtre E-mail, export CSV).
-- **Miroir dans ce dépôt : `vps-enrich/`** (scripts, SKILL v5, rapport, journaux de bench, verdicts des agents). Sans les données ni les clés. Après une modification sur le VPS, re-synchroniser : `rsync -az --exclude .env --exclude backups/ --exclude 'run-*' --exclude smoke-uk/ --exclude bench/cache/ vps:/home/ubuntu/enrich/ .claude/skills/enrichissement-email/vps-enrich/` (puis retirer les csv/json/log lourds).
-- **Le code du CRM** (`outreach/`) est dans ce dépôt et se déploie par `outreach/deploy/deploy.sh`, qui écrase le serveur. Le 15/09 ce déploiement a effacé l'interface e-mail patchée à chaud sur le VPS ; elle a été réintégrée dans le dépôt (commit « emails : interface du VPS réintégrée »). Règle : **toute modification du CRM passe par le dépôt**, jamais à chaud sur le serveur. `deploy.sh` garde désormais une copie datée des fichiers serveur écrasés dans `~/outreach-ecrase/`.
-- Résultat au 15/09 : **563 e-mails dans le CRM (202 A · 211 B · 150 C)**, A+B sur les profils UK ≈ 31 %. Détail des runs, décisions et mesures : `vps-enrich/RAPPORT-2026-09-11.md`, `vps-enrich/LEDGER.md`, `vps-enrich/bench/LEDGER-final.md`.
-
-# Procédure (v5, copie de vps-enrich/SKILL.md)
-
 
 # Enrichissement e-mail — procédure v5
 

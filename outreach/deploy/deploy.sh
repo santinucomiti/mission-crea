@@ -6,9 +6,19 @@ HOST="${1:-vps}"
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REMOTE=/home/ubuntu/outreach
 
-rsync -az --delete \
+# Filet de sécurité : si du code a été modifié directement sur le serveur (autre session, correctif à chaud),
+# on le montre et on garde une copie datée dans ~/outreach-ecrase/<horodatage>/ avant de l'écraser.
+CHANGED=$(rsync -azn --delete --itemize-changes \
+  --exclude data/ --exclude .env --exclude node_modules/ --exclude .git/ \
+  "$DIR/" "$HOST:$REMOTE/" | grep -E '^[<>]f' | awk '{print $2}' || true)
+if [ -n "$CHANGED" ]; then
+  echo "Fichiers qui vont changer sur le serveur :"; echo "$CHANGED" | sed 's/^/  /'
+fi
+STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+rsync -az --delete --backup --backup-dir="/home/ubuntu/outreach-ecrase/$STAMP" \
   --exclude data/ --exclude .env --exclude node_modules/ --exclude .git/ \
   "$DIR/" "$HOST:$REMOTE/"
+ssh "$HOST" "[ -d /home/ubuntu/outreach-ecrase/$STAMP ] && echo 'Versions serveur écrasées conservées dans ~/outreach-ecrase/$STAMP' || true"
 
 ssh "$HOST" bash -s <<'EOF'
 set -e

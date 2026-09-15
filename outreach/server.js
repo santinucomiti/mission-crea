@@ -331,10 +331,10 @@ async function api(req, res, url) {
     const cols = [
       ['nom_complet', 'Nom complet'], ['prenom', 'Prénom'], ['nom', 'Nom'], ['titre', 'Titre'], ['entreprise', 'Entreprise'],
       ['localisation', 'Localisation'], ['domaine', 'Domaine'], ['pays_calc', 'Pays'], ['zone_calc', 'Zone'], ['degre', 'Degré'],
-      ['email', 'Email'], ['email_confiance', 'Email confiance'], ['email_verifie', 'Email vérifié'], ['email_catch_all', 'Email catch-all'],
       ['contacte', 'Contacté'], ['contacte_le', 'Contacté le'],
       ['interviewe', 'Interviewé'], ['interviewe_le', 'Interviewé le'],
       ['relance_le', 'Relance le'], ['notes', 'Notes'], ['nb_fichiers', 'Fichiers'],
+      ['email', 'E-mail'], ['email_confiance', 'Confiance e-mail'], ['email_statut', 'Statut e-mail'], ['email_note', 'Note e-mail'],
       ['relations_communes', 'Relations en commun'], ['anciennete_poste', 'Ancienneté poste'],
       ['anciennete_entreprise', 'Ancienneté entreprise'], ['derniere_activite', 'Dernière activité'],
       ['a_propos', 'À propos'], ['contexte_linkedin', 'Profil LinkedIn'], ['profil_url', 'URL Sales Navigator'], ['linkedin_url', 'URL LinkedIn'],

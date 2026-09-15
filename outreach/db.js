@@ -76,13 +76,13 @@ function migrate(db) {
     db.exec('ALTER TABLE prospects ADD COLUMN contexte_linkedin TEXT');
     db.exec('ALTER TABLE prospects ADD COLUMN contexte_maj TEXT');
   }
-  // Emails trouvés par le skill enrichissement-email (confiance A-D, statut, pattern, source, vérification).
-  if (!cols.includes('email')) {
-    for (const c of ['email', 'email_confiance', 'email_statut', 'email_pattern', 'email_source', 'email_verifie', 'email_catch_all', 'email_note', 'email_maj']) db.exec(`ALTER TABLE prospects ADD COLUMN ${c} TEXT`);
-  }
   if (!cols.includes('interviewe')) {
     db.exec('ALTER TABLE prospects ADD COLUMN interviewe INTEGER NOT NULL DEFAULT 0');
     db.exec('ALTER TABLE prospects ADD COLUMN interviewe_le TEXT');
+  }
+  // Enrichissement e-mail (script ~/enrich/upsert-crm.mjs) : adresse, niveau de confiance A-D, statut, raison.
+  for (const c of ['email', 'email_confiance', 'email_statut', 'email_pattern', 'email_source', 'email_verifie', 'email_catch_all', 'email_note', 'email_maj']) {
+    if (!cols.includes(c)) db.exec(`ALTER TABLE prospects ADD COLUMN ${c} TEXT`);
   }
   db.exec('CREATE INDEX IF NOT EXISTS prospects_nom_norm ON prospects(nom_norm)');
   const missing = db.prepare('SELECT id, nom_complet FROM prospects WHERE nom_norm IS NULL').all();
@@ -372,6 +372,14 @@ export function updateProspect(db, id, patch, who) {
       }
     }
     if (field === 'zone') value = value === 'FR' || value === 'INT' ? value : null;
+    // Adresse saisie à la main : source « manuel » (jamais écrasée par upsert-crm.mjs), confiance A, statut trouvé ; vide = retour à « non enrichi ».
+    if (field === 'email') {
+      value = String(value || '').trim().toLowerCase() || null;
+      sets.push('email_source = @email_source', 'email_confiance = @email_confiance', 'email_statut = @email_statut', 'email_note = @email_note', 'email_pattern = NULL', 'email_verifie = NULL', 'email_catch_all = NULL', 'email_maj = @now');
+      Object.assign(params, value
+        ? { email_source: 'manuel', email_confiance: 'A', email_statut: 'trouvé', email_note: 'saisie à la main par ' + who }
+        : { email_source: null, email_confiance: null, email_statut: null, email_note: null });
+    }
     if (field === 'interviewe') {
       value = value ? 1 : 0;
       if (value !== current.interviewe) { sets.push('interviewe_le = @interviewe_le'); params.interviewe_le = value ? now : null; }
