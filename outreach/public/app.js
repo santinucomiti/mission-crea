@@ -229,7 +229,7 @@ function Player({ file, p, onClose, toast }) {
   // Défilement automatique vers la phrase en cours, sauf si l'utilisateur vient de scroller lui-même.
   useEffect(() => {
     if (!follow || cur < 0 || !box.current) return;
-    const el = box.current.querySelector('.seg.now');
+    const el = box.current.querySelector('.line.now');
     if (!el) return;
     lastAuto.current = Date.now();
     el.scrollIntoView({ block: 'center', behavior: 'smooth' });
@@ -253,9 +253,9 @@ function Player({ file, p, onClose, toast }) {
       <audio ref=${audio} controls preload="metadata" src=${'/api/files/' + file.id}
         onPlay=${onPlay} onPause=${onPause} onSeeked=${() => setT(audio.current.currentTime)} onEnded=${onPause}></audio>
       <div class="player-bar">
-        <span class="mono tiny">${mmss(t)}</span>
-        <div class="seg-ctl" role="group" aria-label="Vitesse">
-          ${[1, 1.25, 1.5, 2].map((r) => html`<button class=${rate === r ? 'on' : ''} onClick=${() => setRate(r)}>×${r}</button>`)}
+        <span class="mono tiny clock">${mmss(t)}${tr ? ` / ${mmss(tr.segments[segs.length - 1]?.end || 0)}` : ''}</span>
+        <div class="seg" role="group" aria-label="Vitesse">
+          ${[1, 1.25, 1.5, 2].map((r) => html`<button class=${'seg-btn' + (rate === r ? ' active' : '')} onClick=${() => setRate(r)}>×${r}</button>`)}
         </div>
         <input class="player-search" placeholder="Chercher dans le transcript…" value=${q} onInput=${(e) => setQ(e.target.value)} />
         ${needle && html`<span class="muted tiny">${hits} phrase${hits > 1 ? 's' : ''}</span>`}
@@ -266,12 +266,12 @@ function Player({ file, p, onClose, toast }) {
       <div class="lyrics" ref=${box} onScroll=${onScroll}>
         ${!tr ? html`<div class="muted">Chargement du transcript…</div>` : segs.map((s, i) => {
           const hit = needle && s.text.toLowerCase().includes(needle);
-          const cls = 'seg' + (i === cur ? ' now' : i < cur ? ' past' : '') + (hit ? ' hit' : '');
+          const cls = 'line' + (i === cur ? ' now' : i < cur ? ' past' : '') + (hit ? ' hit' : '');
           return html`<p key=${i} class=${cls} onClick=${() => seek(s.start)}>
             <span class="ts mono">${mmss(s.start)}</span>
-            ${s.words && s.words.length ? s.words.map((w, j) => html`<span key=${j}
-              class=${'w' + (i === cur && w.s <= t && t < w.e + 0.08 ? ' now' : w.e <= t ? ' past' : '')}
-              onClick=${(e) => { e.stopPropagation(); seek(w.s); }}>${w.w}</span>`) : s.text}
+            <span class="txt">${s.words && s.words.length ? s.words.map((w, j) => html`<span key=${j}
+              class=${'word' + (i === cur && w.s <= t && t < w.e + 0.08 ? ' now' : w.e <= t ? ' past' : '')}
+              onClick=${(e) => { e.stopPropagation(); seek(w.s); }}>${j === 0 ? w.w.trimStart() : w.w}</span>`) : s.text}</span>
           </p>`;
         })}
       </div>
