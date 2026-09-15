@@ -505,6 +505,7 @@ function App() {
   const [filters, setFilters] = useState({ q: '', contacte: 'all', relance: false, degre: 'all', zone: 'all', email: 'all' });
   const [selectedId, setSelectedId] = useState(() => decodeURIComponent((location.hash.match(/p=([^&]+)/) || [])[1] || '') || null);
   const [notionBusy, setNotionBusy] = useState(false);
+  const [notionOn, setNotionOn] = useState(false);
   useEffect(() => { history.replaceState(null, '', selectedId ? '#p=' + encodeURIComponent(selectedId) : location.pathname); }, [selectedId]);
   const syncNotion = async () => {
     setNotionBusy(true);
@@ -526,6 +527,7 @@ function App() {
       const [me, list, tpls] = await Promise.all([api('/me'), api('/prospects'), api('/templates')]);
       setPeople(me.people); setWho(me.who); setRo(!!me.readOnly); setProspects(list); setTemplates(tpls); setAuth('ok');
       document.body.classList.toggle('ro', !!me.readOnly);
+      api('/notion/status').then((s) => setNotionOn(!!s.enabled)).catch(() => setNotionOn(false));
     } catch (e) {
       if (e.status === 401) setAuth('no'); else toast(e.message);
     }
@@ -596,7 +598,7 @@ function App() {
       <span class="spacer"></span>
       <a class="btn" href="/api/export.csv" download>Exporter CSV</a>
       ${!ro && html`<button class="btn" onClick=${() => setModal('extension')}>Extension</button>
-      <button class="btn" disabled=${notionBusy} onClick=${syncNotion} title="Entretiens réalisés ↔ Notion « Liste de contacts »">${notionBusy ? 'Notion…' : 'Notion'}</button>
+      ${notionOn && html`<button class="btn" disabled=${notionBusy} onClick=${syncNotion} title="Entretiens réalisés ↔ Notion « Liste de contacts »">${notionBusy ? 'Notion…' : 'Notion'}</button>`}
       <button class="btn" onClick=${() => setModal('templates')}>Modèles</button>
       <button class="btn primary" onClick=${() => setModal('import')}>Importer un CSV</button>`}
       <div class="who">

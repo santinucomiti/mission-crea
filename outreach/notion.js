@@ -13,8 +13,9 @@ const CRM_MARK = '🔁 Synchronisé depuis le CRM';
 const NOTES_MARK = '📝 Notes CRM';
 const PEOPLE_MATCH = { Santinu: /santinu/i, Eva: /eva/i, 'Rémi': /r[ée]mi/i };
 
+// NOTION_SYNC=off coupe la synchro (cycle automatique et bouton) sans retirer le jeton.
 export function notionEnabled(env = process.env) {
-  return !!(env.NOTION_TOKEN && env.NOTION_DB_ID);
+  return !!(env.NOTION_TOKEN && env.NOTION_DB_ID) && String(env.NOTION_SYNC || 'on').toLowerCase() !== 'off';
 }
 
 function client(token) {
