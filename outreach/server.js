@@ -355,8 +355,25 @@ async function api(req, res, url) {
   }
 
   // ---- fichiers (audio, documents) rattachés à un prospect ----
+  // Transcript synchronisé d'un enregistrement : {text, segments:[{start,end,text,words:[{w,s,e,p}]}], model, language}
+  if ((m = path.match(/^\/files\/([^/]+)\/transcript$/)) && method === 'GET') {
+    const row = db.prepare('SELECT * FROM transcripts WHERE file_id = ?').get(m[1]);
+    if (!row) return json(res, 404, { error: 'pas de transcript' });
+    return json(res, 200, { ...row, segments: JSON.parse(row.segments) });
+  }
+  if ((m = path.match(/^\/files\/([^/]+)\/transcript$/)) && method === 'PUT') {
+    if (!db.prepare('SELECT 1 FROM files WHERE id = ?').get(m[1])) return json(res, 404, { error: 'fichier introuvable' });
+    const b = await readJson(req);
+    if (!Array.isArray(b.segments) || !b.segments.length) return json(res, 400, { error: 'segments requis' });
+    const segments = b.segments.map((s) => ({ start: +s.start, end: +s.end, text: String(s.text || ''), words: (s.words || []).map((w) => ({ w: String(w.w || ''), s: +w.s, e: +w.e, p: +w.p || 0 })) }));
+    const text = b.text || segments.map((s) => s.text).join('\n');
+    db.prepare(`INSERT INTO transcripts(file_id, text, segments, model, language, created_at) VALUES (@id, @text, @segments, @model, @language, @now)
+      ON CONFLICT(file_id) DO UPDATE SET text = excluded.text, segments = excluded.segments, model = excluded.model, language = excluded.language, created_at = excluded.created_at`)
+      .run({ id: m[1], text, segments: JSON.stringify(segments), model: b.model || null, language: b.language || null, now: new Date().toISOString() });
+    return json(res, 200, { ok: true, segments: segments.length });
+  }
   if ((m = path.match(/^\/prospects\/([^/]+)\/files$/)) && method === 'GET') {
-    return json(res, 200, db.prepare('SELECT * FROM files WHERE prospect_id = ? ORDER BY uploaded_at DESC').all(decodeURIComponent(m[1])));
+    return json(res, 200, db.prepare('SELECT f.*, (t.file_id IS NOT NULL) AS has_transcript FROM files f LEFT JOIN transcripts t ON t.file_id = f.id WHERE f.prospect_id = ? ORDER BY f.uploaded_at DESC').all(decodeURIComponent(m[1])));
   }
   if ((m = path.match(/^\/prospects\/([^/]+)\/files$/)) && method === 'POST') {
     const prospectId = decodeURIComponent(m[1]);

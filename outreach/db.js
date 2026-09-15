@@ -43,6 +43,10 @@ export function openDb(path) {
       uploaded_by TEXT, uploaded_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS files_prospect ON files(prospect_id, uploaded_at);
+    CREATE TABLE IF NOT EXISTS transcripts (
+      file_id TEXT PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,
+      text TEXT NOT NULL, segments TEXT NOT NULL, model TEXT, language TEXT, created_at TEXT NOT NULL
+    );
   `);
   migrate(db);
   seed(db);

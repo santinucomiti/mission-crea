@@ -184,8 +184,104 @@ const fmtSize = (n) => (n > 1e6 ? (n / 1e6).toFixed(1) + ' Mo' : Math.round(n / 
 // Un .mp4 est lu dans un lecteur audio : seule la piste son nous intéresse.
 const isPlayable = (f) => /^audio\//.test(f.mime || '') || /\.(mp3|m4a|aac|wav|ogg|oga|opus|webm|flac|mp4|m4b|mov)$/i.test(f.filename || '');
 
+
+// Lecteur synchronisé : audio en haut, transcript en dessous, phrase + mot en cours surlignés
+// en temps réel (comme les paroles sur Spotify). Clic sur un mot ou une phrase → saut dans l'audio.
+const mmss = (s) => { s = Math.max(0, Math.floor(s)); const m = Math.floor(s / 60); return `${m}:${String(s % 60).padStart(2, '0')}`; };
+
+function Player({ file, p, onClose, toast }) {
+  const [tr, setTr] = useState(null);
+  const [t, setT] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const [rate, setRate] = useState(1);
+  const [q, setQ] = useState('');
+  const [follow, setFollow] = useState(true);
+  const audio = useRef();
+  const box = useRef();
+  const raf = useRef();
+  const lastAuto = useRef(0);
+
+  useEffect(() => { api('/files/' + file.id + '/transcript').then(setTr).catch((e) => toast(e.message)); }, [file.id]);
+  useEffect(() => { if (audio.current) audio.current.playbackRate = rate; }, [rate]);
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      const a = audio.current; if (!a) return;
+      if (e.key === ' ') { e.preventDefault(); a.paused ? a.play() : a.pause(); }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); a.currentTime = Math.max(0, a.currentTime - 5); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); a.currentTime += 5; }
+      else if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => { window.removeEventListener('keydown', onKey); cancelAnimationFrame(raf.current); };
+  }, []);
+
+  // Position lue à ~60 Hz pendant la lecture (timeupdate ne tire que 4×/s, trop saccadé pour le mot en cours).
+  const tick = () => { const a = audio.current; if (!a) return; setT(a.currentTime); if (!a.paused) raf.current = requestAnimationFrame(tick); };
+  const onPlay = () => { setPlaying(true); cancelAnimationFrame(raf.current); tick(); };
+  const onPause = () => { setPlaying(false); cancelAnimationFrame(raf.current); setT(audio.current.currentTime); };
+
+  const segs = tr?.segments || [];
+  let cur = -1;
+  for (let i = 0; i < segs.length; i++) { if (segs[i].start <= t + 0.05) cur = i; else break; }
+  if (cur >= 0 && t > segs[cur].end + 1.5 && cur < segs.length - 1) cur = -1; // silence entre deux phrases
+
+  // Défilement automatique vers la phrase en cours, sauf si l'utilisateur vient de scroller lui-même.
+  useEffect(() => {
+    if (!follow || cur < 0 || !box.current) return;
+    const el = box.current.querySelector('.seg.now');
+    if (!el) return;
+    lastAuto.current = Date.now();
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [cur, follow]);
+  const onScroll = () => { if (Date.now() - lastAuto.current > 1200) setFollow(false); };
+
+  const seek = (s) => { const a = audio.current; a.currentTime = s; setT(s); setFollow(true); if (a.paused) a.play(); };
+  const needle = q.trim().toLowerCase();
+  const hits = needle ? segs.filter((s) => s.text.toLowerCase().includes(needle)).length : 0;
+  const copy = () => navigator.clipboard.writeText(segs.map((s) => `[${mmss(s.start)}] ${s.text}`).join('\n')).then(() => toast('Transcript copié'));
+
+  return html`<div class="modal-bg" onClick=${onClose}>
+    <div class="modal player" onClick=${(e) => e.stopPropagation()}>
+      <div class="player-head">
+        <div>
+          <h2>${p.nom_complet}</h2>
+          <div class="muted tiny">${file.filename}${tr ? ` · ${segs.length} phrases · ${tr.model ? tr.model.split('/').pop() : 'whisper'}` : ''}</div>
+        </div>
+        <button class="btn ghost small" onClick=${onClose} aria-label="Fermer">✕</button>
+      </div>
+      <audio ref=${audio} controls preload="metadata" src=${'/api/files/' + file.id}
+        onPlay=${onPlay} onPause=${onPause} onSeeked=${() => setT(audio.current.currentTime)} onEnded=${onPause}></audio>
+      <div class="player-bar">
+        <span class="mono tiny">${mmss(t)}</span>
+        <div class="seg-ctl" role="group" aria-label="Vitesse">
+          ${[1, 1.25, 1.5, 2].map((r) => html`<button class=${rate === r ? 'on' : ''} onClick=${() => setRate(r)}>×${r}</button>`)}
+        </div>
+        <input class="player-search" placeholder="Chercher dans le transcript…" value=${q} onInput=${(e) => setQ(e.target.value)} />
+        ${needle && html`<span class="muted tiny">${hits} phrase${hits > 1 ? 's' : ''}</span>`}
+        ${!follow && playing && html`<button class="btn small" onClick=${() => setFollow(true)}>↧ Suivre</button>`}
+        <button class="btn ghost small" onClick=${copy} title="Copier le transcript horodaté">Copier</button>
+        <span class="muted tiny kbd">espace · ← → 5 s</span>
+      </div>
+      <div class="lyrics" ref=${box} onScroll=${onScroll}>
+        ${!tr ? html`<div class="muted">Chargement du transcript…</div>` : segs.map((s, i) => {
+          const hit = needle && s.text.toLowerCase().includes(needle);
+          const cls = 'seg' + (i === cur ? ' now' : i < cur ? ' past' : '') + (hit ? ' hit' : '');
+          return html`<p key=${i} class=${cls} onClick=${() => seek(s.start)}>
+            <span class="ts mono">${mmss(s.start)}</span>
+            ${s.words && s.words.length ? s.words.map((w, j) => html`<span key=${j}
+              class=${'w' + (i === cur && w.s <= t && t < w.e + 0.08 ? ' now' : w.e <= t ? ' past' : '')}
+              onClick=${(e) => { e.stopPropagation(); seek(w.s); }}>${w.w}</span>`) : s.text}
+          </p>`;
+        })}
+      </div>
+    </div>
+  </div>`;
+}
+
 function Files({ p, toast }) {
   const [files, setFiles] = useState(null);
+  const [player, setPlayer] = useState(null);
   const [busy, setBusy] = useState('');
   const [over, setOver] = useState(false);
   const input = useRef();
@@ -228,7 +324,11 @@ function Files({ p, toast }) {
             <button class="btn ghost small" onClick=${() => del(f)} aria-label="Supprimer">✕</button>
           </div>
           ${isPlayable(f) && html`<audio controls preload="none" src=${'/api/files/' + f.id}></audio>`}
+          ${isPlayable(f) && (f.has_transcript
+            ? html`<button class="btn small transcript-btn" onClick=${() => setPlayer(f)}>🎧 Lecteur synchronisé · transcript</button>`
+            : html`<span class="muted tiny">Pas encore de transcript</span>`)}
         </li>`)}</ul>`}
+    ${player && html`<${Player} file=${player} p=${p} onClose=${() => setPlayer(null)} toast=${toast} />`}
   </section>`;
 }
 
