@@ -41,6 +41,11 @@ sur les acronymes), lancer, puis **relire** le résultat avant de le rendre.
    ```
    `--lang en` pour un entretien en anglais (Luis Gomes de Abreu, CISO UK…) ; `--max-seconds 120`
    pour un essai rapide. Le script affiche les segments au fil de l'eau sur stderr.
+   **Interlocuteur faible ou au téléphone** (« vous m'entendez mal », trous de plusieurs minutes dans
+   le transcript, moins de ~80 mots/min) : ajouter `--normalize --vad-threshold 0.3`. Constaté sur
+   Paul Richiardi (visio, voix lointaine) : 2 149 → 3 295 mots, 77 → 111 segments, couverture 74 → 78 %.
+   Sans ce réglage le détecteur de voix écarte les réponses de l'interviewé et ne garde que les
+   questions. Vérifier avec `mots / durée` avant de rendre : un entretien normal tourne à 120–160 mots/min.
 4. **Relire** : le `.txt` porte un `⚠` sur les segments peu sûrs (`avg_logprob < -0.8`) — les
    vérifier en priorité ; les hallucinations typiques de Whisper sont des phrases répétées, des
    « Sous-titres réalisés par… », ou du texte pendant un silence (le VAD en enlève la plupart).
@@ -63,5 +68,11 @@ sur les acronymes), lancer, puis **relire** le résultat avant de le rendre.
 ## Stockage
 
 Les transcripts ne sont pas dans le dépôt (données personnelles). Les mettre dans `transcripts/`
-(ignoré par git) ou, si Santinu le demande, dans les notes de la fiche CRM (elles partent alors vers
-Notion par la synchro).
+(ignoré par git), puis les rattacher à l'enregistrement dans le CRM : la fiche affiche alors un
+lecteur synchronisé (audio + texte, phrase et mot en cours surlignés, clic pour sauter).
+```bash
+OUTREACH_TOKEN=<prénom.mac> node tools/push-transcript.mjs <id du fichier audio> transcripts/<prenom-nom>.json
+```
+L'id du fichier : `GET /api/prospects/<id>/files` (ou l'URL du lien « fichier » dans la fiche). Le jeton :
+CRM → Extension. Repousser le même id remplace le transcript. Ne pas coller le transcript dans les notes
+(elles partent vers Notion par la synchro et le workspace Notion est déjà plein).

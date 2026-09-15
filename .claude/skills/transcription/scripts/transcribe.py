@@ -22,6 +22,8 @@ ap.add_argument("--lang", default="fr")
 ap.add_argument("--device", default="cuda")
 ap.add_argument("--compute", default="float16")
 ap.add_argument("--max-seconds", type=float, default=0, help="ne transcrire que les N premières secondes (test)")
+ap.add_argument("--vad-threshold", type=float, default=0.5, help="seuil du détecteur de voix (0.3 si un interlocuteur est faible / au téléphone)")
+ap.add_argument("--normalize", action="store_true", help="normalise le volume (dynaudnorm) avant transcription : utile si un interlocuteur est bien plus faible que l'autre")
 args = ap.parse_args()
 
 ctx = json.load(open(args.context, encoding="utf-8")) if args.context else {}
@@ -46,6 +48,8 @@ tmp = Path(tempfile.mkdtemp()) / "audio.wav"
 cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(src)]
 if args.max_seconds:
     cmd += ["-t", str(args.max_seconds)]
+if args.normalize:
+    cmd += ["-af", "highpass=f=80,dynaudnorm=f=150:g=15:p=0.9"]
 cmd += ["-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(tmp)]
 subprocess.run(cmd, check=True)
 
@@ -57,7 +61,7 @@ model = WhisperModel(args.model, device=args.device, compute_type=args.compute)
 # propage sur des minutes), pénalité de répétition, rejet des fenêtres trop compressées, VAD strict.
 segments, info = model.transcribe(
     str(tmp), language=args.lang or None, beam_size=5, vad_filter=True,
-    vad_parameters={"min_silence_duration_ms": 700, "speech_pad_ms": 200, "threshold": 0.5},
+    vad_parameters={"min_silence_duration_ms": 700, "speech_pad_ms": 300, "threshold": args.vad_threshold},
     initial_prompt=initial_prompt, hotwords=hotwords,
     condition_on_previous_text=False, repetition_penalty=1.05,
     compression_ratio_threshold=2.0, log_prob_threshold=-1.0, temperature=[0.0, 0.2, 0.4],
