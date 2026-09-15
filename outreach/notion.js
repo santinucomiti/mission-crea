@@ -38,7 +38,10 @@ const rich = (s) => [{ type: 'text', text: { content: String(s || '').slice(0, 2
 const day = (iso) => (iso ? String(iso).slice(0, 10) : null);
 // Paragraphes normalisés pour comparer des notes venant des deux côtés.
 const paras = (s) => (s || '').split(/\n{2,}|\r?\n/).map((x) => x.trim()).filter(Boolean);
-const key = (s) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+// Clé de comparaison d'un paragraphe : sans le tampon « [Notion · date] », sans casse ni espaces multiples.
+// (Sans ce retrait, chaque cycle ré-ajoutait toutes les notes Notion : 15 000 blocs sur une fiche.)
+const unstamp = (s) => s.replace(/^\[Notion[^\]]*\]\s*/, '');
+const key = (s) => unstamp(s).toLowerCase().replace(/\s+/g, ' ').trim();
 
 function readRow(page) {
   const p = page.properties;
