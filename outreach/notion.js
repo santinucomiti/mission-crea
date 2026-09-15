@@ -117,7 +117,11 @@ export async function syncNotion(db, { token, dbId, crmUrl, who = 'sync', log = 
     rows.push(...r.results.map(readRow));
     cursor = r.has_more ? r.next_cursor : undefined;
   } while (cursor);
-  report.notionRows = rows.length;
+  // Pages Notion à ignorer (lignes qui ne sont pas des personnes, ex. « Antoine Fleuret AI ») :
+  // INSERT INTO notion_ignore(page_id, motif, ajoute_le) VALUES ('<id de page>', '…', datetime('now')).
+  const ignored = new Set(db.prepare('SELECT page_id FROM notion_ignore').all().map((r) => r.page_id));
+  const kept = rows.filter((r) => !ignored.has(r.pageId));
+  report.notionRows = kept.length;
 
   const byPage = db.prepare('SELECT * FROM prospects WHERE notion_page_id = ?');
   const byNorm = db.prepare('SELECT * FROM prospects WHERE nom_norm = ? ORDER BY interviewe DESC, contacte DESC LIMIT 2');
@@ -126,7 +130,7 @@ export async function syncNotion(db, { token, dbId, crmUrl, who = 'sync', log = 
 
   // 2. Notion → CRM : rapprocher, créer si absent, statuts « le plus avancé gagne », notes.
   const blocksByPage = new Map();
-  for (const row of rows) {
+  for (const row of kept) {
     try {
       if (!row.nom.trim()) continue;
       let p = byPage.get(row.pageId) || byNorm.all(normName(row.nom))[0] || null;
