@@ -434,6 +434,7 @@ function App() {
   const [auth, setAuth] = useState('unknown');
   const [people, setPeople] = useState([]);
   const [who, setWho] = useState('');
+  const [ro, setRo] = useState(false);
   const [prospects, setProspects] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [filters, setFilters] = useState({ q: '', contacte: 'all', relance: false, degre: 'all', zone: 'all' });
@@ -458,7 +459,8 @@ function App() {
   const load = async () => {
     try {
       const [me, list, tpls] = await Promise.all([api('/me'), api('/prospects'), api('/templates')]);
-      setPeople(me.people); setWho(me.who); setProspects(list); setTemplates(tpls); setAuth('ok');
+      setPeople(me.people); setWho(me.who); setRo(!!me.readOnly); setProspects(list); setTemplates(tpls); setAuth('ok');
+      document.body.classList.toggle('ro', !!me.readOnly);
     } catch (e) {
       if (e.status === 401) setAuth('no'); else toast(e.message);
     }
@@ -526,12 +528,12 @@ function App() {
       <input class="search" type="search" placeholder="Rechercher nom, titre, entreprise, ville, notes…" value=${filters.q} onInput=${(e) => set({ q: e.target.value })} />
       <span class="spacer"></span>
       <a class="btn" href="/api/export.csv" download>Exporter CSV</a>
-      <button class="btn" onClick=${() => setModal('extension')}>Extension</button>
+      ${!ro && html`<button class="btn" onClick=${() => setModal('extension')}>Extension</button>
       <button class="btn" disabled=${notionBusy} onClick=${syncNotion} title="Entretiens réalisés ↔ Notion « Liste de contacts »">${notionBusy ? 'Notion…' : 'Notion'}</button>
       <button class="btn" onClick=${() => setModal('templates')}>Modèles</button>
-      <button class="btn primary" onClick=${() => setModal('import')}>Importer un CSV</button>
+      <button class="btn primary" onClick=${() => setModal('import')}>Importer un CSV</button>`}
       <div class="who">
-        <${PersonChip} name=${who} people=${people} />
+        <${PersonChip} name=${who} people=${people} />${ro && html`<span class="chip ro-chip" title="Ce compte peut tout consulter mais rien modifier">lecture seule</span>`}
         <button class="btn ghost small" onClick=${logout}>Se déconnecter</button>
       </div>
     </header>

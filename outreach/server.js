@@ -19,6 +19,8 @@ const USERS = (process.env.OUTREACH_USERS || '')
   .map((s) => { const i = s.indexOf(':'); return { name: s.slice(0, i).trim(), password: s.slice(i + 1) }; })
   .filter((u) => u.name && u.password);
 const SECRET = process.env.OUTREACH_SECRET;
+// OUTREACH_READONLY="Fabrice" — comptes qui voient tout mais ne modifient rien (encadrant, relecteur).
+const READONLY = new Set((process.env.OUTREACH_READONLY || '').split(',').map((s) => s.trim()).filter(Boolean));
 const DB_PATH = resolve(ROOT, process.env.DB_PATH || './data/outreach.sqlite');
 const FILES_DIR = resolve(ROOT, process.env.FILES_DIR || './data/files');
 const PHOTOS_DIR = resolve(ROOT, process.env.PHOTOS_DIR || './data/photos');
@@ -222,10 +224,12 @@ async function api(req, res, url) {
 
   const who = sessionUser(req);
   if (!who) return json(res, 401, { error: 'non connecté' });
+  const readOnly = READONLY.has(who);
+  if (readOnly && method !== 'GET' && path !== '/logout') return json(res, 403, { error: 'compte en lecture seule : aucune modification possible' });
 
   if (path === '/me' && method === 'GET') {
     return json(res, 200, {
-      who,
+      who, readOnly,
       people: db.prepare('SELECT name, color FROM people ORDER BY position').all(),
     });
   }

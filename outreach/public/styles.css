@@ -243,3 +243,9 @@ label.field > * { font-size: 14px; color: var(--ink); font-weight: 400; }
 .lyrics .line.now .word.now { color: var(--accent); font-weight: 700; }
 .lyrics .word:hover { text-decoration: underline; }
 @media (prefers-reduced-motion: reduce) { .lyrics { scroll-behavior: auto; } .lyrics .line { transition: none; } }
+
+/* ---- compte en lecture seule (OUTREACH_READONLY) : le serveur refuse toute écriture, l'interface cache les commandes ---- */
+.ro-chip { background: var(--accent-soft); color: var(--accent); font-size: 11px; padding: 2px 8px; border-radius: 999px; margin-left: 6px; }
+body.ro .contact-toggle, body.ro .zone-row .seg, body.ro .field input[type="date"] { pointer-events: none; opacity: .7; }
+body.ro .notes-area { pointer-events: none; }
+body.ro .drop, body.ro .files .file-head button, body.ro .connect-btn, body.ro .mark-btn { display: none !important; }
