@@ -189,21 +189,68 @@ export function markContactedByNames(db, names, who) {
 // Retrouve la fiche correspondant à un profil linkedin.com/in/… : URL déjà connue, puis identifiant
 // membre (les 9 caractères après le préfixe sont communs aux ids Sales Navigator « ACwAA… » et
 // membre « ACoAA… »), puis nom complet s'il est unique.
+// Slug d'un lien de profil : « https://fr.linkedin.com/in/Jean-Dupont-123/?x=1 » → « jean-dupont-123 ».
+export const profileSlug = (u) => { const m = String(u || '').match(/linkedin\.com\/in\/([^/?#]+)/i); return m ? decodeURIComponent(m[1]).toLowerCase() : null; };
+
+// Fusionne la fiche `drop` dans `keep` : suivi (contacté, interviewé, notes, relance, Notion), fichiers, puis suppression.
+export function mergeProspects(db, keep, drop) {
+  const notes = [keep.notes, drop.notes].map((n) => (n || '').trim()).filter(Boolean);
+  const merged = {
+    id: keep.id,
+    contacte: keep.contacte || drop.contacte ? 1 : 0,
+    contacte_le: [keep.contacte_le, drop.contacte_le].filter(Boolean).sort()[0] || null,
+    contacte_par: keep.contacte_par || drop.contacte_par || null,
+    interviewe: keep.interviewe || drop.interviewe ? 1 : 0,
+    interviewe_le: [keep.interviewe_le, drop.interviewe_le].filter(Boolean).sort()[0] || null,
+    notes: notes.length === 2 && notes[0] !== notes[1] ? notes.join('\n\n') : notes[0] || '',
+    relance_le: keep.relance_le || drop.relance_le || null,
+    linkedin_url: keep.linkedin_url || drop.linkedin_url || null,
+    zone: keep.zone || drop.zone || null,
+    notion_page_id: keep.notion_page_id || drop.notion_page_id || null,
+    notion_sync_at: keep.notion_sync_at || drop.notion_sync_at || null,
+    titre: keep.titre || drop.titre || '',
+    localisation: keep.localisation || drop.localisation || '',
+    photo_url: keep.photo_url || drop.photo_url || null,
+    contexte_linkedin: keep.contexte_linkedin || drop.contexte_linkedin || null,
+    contexte_maj: keep.contexte_maj || drop.contexte_maj || null,
+    now: new Date().toISOString(),
+  };
+  // « Pierre B. » (Sales Navigator) + « Pierre Belin » (Notion) : on garde le nom complet.
+  const fullName = isTruncatedName(keep.nom) && drop.nom && !isTruncatedName(drop.nom) ? drop : null;
+  db.exec('BEGIN');
+  try {
+    db.prepare(`UPDATE prospects SET contacte = @contacte, contacte_le = @contacte_le, contacte_par = @contacte_par, interviewe = @interviewe, interviewe_le = @interviewe_le,
+      notes = @notes, relance_le = @relance_le, linkedin_url = @linkedin_url, zone = @zone, notion_page_id = @notion_page_id, notion_sync_at = @notion_sync_at,
+      titre = @titre, localisation = @localisation, photo_url = @photo_url, contexte_linkedin = @contexte_linkedin, contexte_maj = @contexte_maj, updated_at = @now WHERE id = @id`).run(merged);
+    if (fullName) db.prepare('UPDATE prospects SET prenom = ?, nom = ?, nom_complet = ?, nom_norm = ? WHERE id = ?').run(fullName.prenom || keep.prenom, fullName.nom, fullName.nom_complet, normName(fullName.nom_complet), keep.id);
+    db.prepare('UPDATE files SET prospect_id = ? WHERE prospect_id = ?').run(keep.id, drop.id);
+    db.prepare('DELETE FROM prospects WHERE id = ?').run(drop.id);
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+  return db.prepare('SELECT * FROM prospects WHERE id = ?').get(keep.id);
+}
+
+// Retrouve la fiche d'un profil linkedin.com/in/… : lien LinkedIn de la fiche (optionnel, comparé sur le slug),
+// puis identifiant membre commun avec Sales Navigator, puis nom complet s'il est unique.
+// Si plusieurs fiches désignent la même personne (ex. fiche Notion « Pierre Belin » + fiche SN « Pierre B. »),
+// elles sont fusionnées dans la fiche Sales Navigator.
 export function findByProfile(db, { url, memberId, nomComplet }) {
-  const clean = (u) => (u || '').replace(/[?#].*$/, '').replace(/\/$/, '');
-  if (url) {
-    const r = db.prepare("SELECT * FROM prospects WHERE rtrim(linkedin_url, '/') = ?").get(clean(url));
-    if (r) return r;
-  }
+  const found = [];
+  const add = (rows) => { for (const r of rows) if (!found.some((f) => f.id === r.id)) found.push(r); };
+  const slug = profileSlug(url);
+  if (slug) add(db.prepare("SELECT * FROM prospects WHERE linkedin_url LIKE '%/in/%'").all().filter((r) => profileSlug(r.linkedin_url) === slug));
   if (memberId && /^ACoAA/.test(memberId)) {
     const rows = db.prepare("SELECT * FROM prospects WHERE id LIKE 'ACwAA%' AND substr(id, 4, 9) = ?").all(memberId.slice(3, 12));
-    if (rows.length === 1) return rows[0];
+    if (rows.length === 1) add(rows);
   }
   if (nomComplet) {
     const rows = db.prepare('SELECT * FROM prospects WHERE nom_norm = ?').all(normName(nomComplet));
-    if (rows.length === 1) return rows[0];
+    if (rows.length === 1) add(rows);
   }
-  return null;
+  if (!found.length) return null;
+  let keep = found.find((r) => isLeadId(r.id)) || found[0];
+  for (const other of found) if (other.id !== keep.id) keep = mergeProspects(db, keep, other);
+  return keep;
 }
 
 export const EDITABLE = ['contacte', 'interviewe', 'notes', 'relance_le', 'linkedin_url', 'zone'];

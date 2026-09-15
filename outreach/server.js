@@ -6,6 +6,7 @@ import { pipeline } from 'node:stream/promises';
 import { basename, extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openDb, upsertProspects, updateProspect, markContactedByNames, findByProfile, normName, withZone, zoneOf, upsertCompany, fixName, isTruncatedName } from './db.js';
+import { unlink } from 'node:fs/promises';
 import { parseCsv, mapRow, fromLeadInfo } from './csv.js';
 import { syncNotion, notionEnabled } from './notion.js';
 
@@ -100,8 +101,9 @@ async function sendFile(req, res, row) {
 // Photos de profil servies depuis notre domaine : les URL media.licdn.com expirent et les
 // bloqueurs (Brave) les cachent quand elles sont chargées directement. Copie locale au premier accès.
 const photoFailures = new Map();
+const photoFile = (id) => join(PHOTOS_DIR, id.replace(/[^A-Za-z0-9_-]/g, '_') + '.jpg');
 async function sendPhoto(res, prospect) {
-  const file = join(PHOTOS_DIR, prospect.id.replace(/[^A-Za-z0-9_-]/g, '_') + '.jpg');
+  const file = photoFile(prospect.id);
   let ok = await stat(file).then(() => true, () => false);
   if (!ok) {
     if ((photoFailures.get(prospect.id) || 0) > Date.now()) return json(res, 404, { error: 'photo indisponible' });
@@ -284,6 +286,11 @@ async function api(req, res, url) {
       localisation = CASE WHEN localisation IS NULL OR localisation = '' THEN @localisation ELSE localisation END,
       contexte_linkedin = @contexte, contexte_maj = @now, updated_at = @now WHERE id = @id`)
       .run({ id: row.id, url: url || null, titre: b.titre || '', localisation: b.localisation || '', contexte: String(b.contexte || '').slice(0, 60000), now });
+    // Photo de la page /in/ : remplace l'URL (celles de LinkedIn expirent) et la copie locale si elle n'a pas encore réussi.
+    if (/^https:\/\/media\.licdn\.com\//.test(b.photoUrl || '')) {
+      db.prepare('UPDATE prospects SET photo_url = ? WHERE id = ?').run(b.photoUrl, row.id);
+      if (!row.photo_url || photoFailures.has(row.id)) { photoFailures.delete(row.id); await unlink(photoFile(row.id)).catch(() => {}); }
+    }
     return json(res, 200, { found: true, ...db.prepare('SELECT id, nom_complet, contacte, contacte_le, interviewe, interviewe_le, notes FROM prospects WHERE id = ?').get(row.id) });
   }
 

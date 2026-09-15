@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sales Navigator — liste + Se connecter
 // @namespace    micoti.salesnav
-// @version      0.7.1
+// @version      0.7.2
 // @description  Par prospect : ouvre « Se connecter », pré-remplit la note ([Prénom], [Nom], [Entreprise], [Titre]) et marque « contacté » dans le CRM Outreach dès le clic. Badges CRM, envoi auto des pages, export CSV. Sur linkedin.com/in/… : aspire le profil dans la fiche CRM.
 // @match        https://www.linkedin.com/sales/*
 // @match        https://www.linkedin.com/in/*
@@ -533,7 +533,9 @@
     }
     const activite = [...document.querySelectorAll('main section')].map((sec) => norm(sec.innerText)).find((t) => /^Activité/.test(t));
     if (activite) parts.push('Activité (extrait)\n' + activite.slice(0, 1500));
-    return { url, memberId, nomComplet: name, slugNom, titre, localisation, contexte: parts.join('\n\n').slice(0, 60000) };
+    const photoUrl = [...top.querySelectorAll('img')].map((im) => im.src).find((s) => /profile-displayphoto/.test(s))
+      || [...top.querySelectorAll('img')].filter((im) => (im.alt || '').includes(name)).map((im) => im.src).find((s) => /^https:\/\/media\.licdn\.com\//.test(s)) || '';
+    return { url, memberId, nomComplet: name, slugNom, titre, localisation, photoUrl, contexte: parts.join('\n\n').slice(0, 60000) };
   }
 
   const profile = { busy: false, lastUrl: '', result: null, info: null };
