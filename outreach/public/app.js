@@ -569,7 +569,10 @@ function App() {
   }, [prospects]);
 
   const visible = useMemo(() => {
-    const q = norm(filters.q);
+    // Mots-clés : chaque mot doit apparaître quelque part (nom, poste, entreprise, ville, notes, e-mail,
+    // et données LinkedIn : « À propos » du CSV Sales Navigator, listes SN, profil aspiré par l'extension).
+    const words = norm(filters.q).split(/\s+/).filter(Boolean);
+    const haystack = (p) => norm([p.nom_complet, p.titre, p.entreprise, p.localisation, p.notes, p.email, p.a_propos, p.listes_sn, p.contexte_linkedin].join(' '));
     return prospects
       .filter((p) => {
         if (filters.contacte === 'oui' && !p.contacte) return false;
@@ -579,7 +582,7 @@ function App() {
         if (filters.degre !== 'all' && p.degre !== filters.degre) return false;
         if (filters.relance) { const rs = relanceState(p); if (rs !== 'due' && rs !== 'overdue') return false; }
         if (filters.email !== 'all' && emailBucket(p) !== filters.email) return false;
-        if (q && !norm([p.nom_complet, p.titre, p.entreprise, p.localisation, p.notes, p.email].join(' ')).includes(q)) return false;
+        if (words.length) { const h = haystack(p); if (!words.every((w) => h.includes(w))) return false; }
         return true;
       })
       .sort((a, b) => (a.contacte - b.contacte) || (a.interviewe - b.interviewe) || (zoneRank(a) - zoneRank(b)) || (relanceRank(a) - relanceRank(b)) || a.nom_complet.localeCompare(b.nom_complet, 'fr'));
@@ -594,7 +597,7 @@ function App() {
   return html`<div class="app">
     <header class="topbar">
       <div class="brand"><span class="logo"></span>Outreach <span class="sub">Mission Créa</span></div>
-      <input class="search" type="search" placeholder="Rechercher nom, titre, entreprise, ville, notes…" value=${filters.q} onInput=${(e) => set({ q: e.target.value })} />
+      <input class="search" type="search" placeholder="Rechercher nom, titre, entreprise, ville, notes, profil LinkedIn…" title="Mots-clés : chaque mot doit apparaître dans la fiche (nom, poste, entreprise, ville, notes, e-mail, « À propos », profil LinkedIn aspiré)" value=${filters.q} onInput=${(e) => set({ q: e.target.value })} />
       <span class="spacer"></span>
       <a class="btn" href="/api/export.csv" download>Exporter CSV</a>
       ${!ro && html`<button class="btn" onClick=${() => setModal('extension')}>Extension</button>
