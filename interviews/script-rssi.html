@@ -1,0 +1,340 @@
+<title>Script RSSI Fleuret</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#F4F6F4;--surface:#FFFFFF;--ink:#1A222C;--muted:#5D6873;--line:#D9DFE3;--soft:#EDF1F2;
+  --accent:#1E6E8A;--accent-ink:#FFFFFF;
+  --segA:#4B4F9D;--segA-bg:#ECEDF7;--segB:#9A6A1C;--segB-bg:#F7F0E2;--segC:#1B7A67;--segC-bg:#E4F2EE;
+  --warn:#8E3B2B;--warn-bg:#F8E9E5;--ok:#2C6E3F;
+  --shadow:0 1px 2px rgba(20,30,40,.06),0 6px 18px -8px rgba(20,30,40,.18);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#12181E;--surface:#1A222B;--ink:#E7EBEF;--muted:#98A4AF;--line:#2B3641;--soft:#222C36;
+  --accent:#63B3CF;--accent-ink:#0F1A20;
+  --segA:#A2A6EA;--segA-bg:#242847;--segB:#E0B36A;--segB-bg:#3A2E16;--segC:#6FCBB6;--segC-bg:#16352E;
+  --warn:#F0A08E;--warn-bg:#3E2420;--ok:#8ED3A2;--shadow:none;}}
+:root[data-theme="dark"]{
+  --bg:#12181E;--surface:#1A222B;--ink:#E7EBEF;--muted:#98A4AF;--line:#2B3641;--soft:#222C36;
+  --accent:#63B3CF;--accent-ink:#0F1A20;
+  --segA:#A2A6EA;--segA-bg:#242847;--segB:#E0B36A;--segB-bg:#3A2E16;--segC:#6FCBB6;--segC-bg:#16352E;
+  --warn:#F0A08E;--warn-bg:#3E2420;--ok:#8ED3A2;--shadow:none;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 "IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+h1,h2,h3{font-family:"IBM Plex Serif",Georgia,serif;font-weight:600;text-wrap:balance;margin:0}
+.mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.top{position:sticky;top:0;z-index:5;background:var(--surface);border-bottom:1px solid var(--line);box-shadow:var(--shadow)}
+.top-in{max-width:1180px;margin:0 auto;padding:12px 20px;display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px}
+.brand h1{font-size:19px;line-height:1.2}
+.brand small{display:block;color:var(--muted);font-size:12px}
+.seg{display:flex;gap:6px;flex-wrap:wrap}
+.seg button{border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:6px 11px;font-size:13px;font-weight:500;display:flex;align-items:center;gap:7px}
+.seg button .dot{width:9px;height:9px;border-radius:50%;background:var(--muted)}
+.seg button[data-seg="A"] .dot{background:var(--segA)}.seg button[data-seg="B"] .dot{background:var(--segB)}.seg button[data-seg="C"] .dot{background:var(--segC)}
+.seg button.on{border-color:var(--ink);background:var(--soft)}
+.fmt{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.fmt button{border:0;background:var(--surface);padding:6px 10px;font-size:13px}
+.fmt button.on{background:var(--ink);color:var(--bg)}
+.timer{margin-left:auto;display:flex;align-items:center;gap:8px}
+.timer .t{font-size:22px;font-weight:500;min-width:74px;text-align:right}
+.timer .t.over{color:var(--warn)}
+.timer button{border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:5px 10px;font-size:13px}
+
+.wrap{max-width:1180px;margin:0 auto;padding:22px 20px 60px;display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:32px;align-items:start}
+@media (max-width:900px){.wrap{grid-template-columns:1fr}.rail{position:static}}
+.main{max-width:72ch}
+.rail{position:sticky;top:78px;display:grid;gap:16px}
+
+.intro{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px 18px;margin-bottom:22px}
+.intro p{margin:0 0 8px}
+.intro p:last-child{margin:0}
+.rule{color:var(--warn);font-weight:600}
+
+.block{margin-bottom:28px}
+.block-h{display:flex;align-items:baseline;gap:12px;border-bottom:2px solid var(--ink);padding-bottom:6px;margin-bottom:10px}
+.block-h h2{font-size:20px}
+.block-h .when{margin-left:auto;font-size:12px;color:var(--muted);white-space:nowrap}
+.block-h .when b{color:var(--ink);font-weight:500}
+.goal{color:var(--muted);font-size:14px;margin:0 0 10px}
+.say{border-left:3px solid var(--accent);padding:6px 14px;margin:8px 0 12px;font-style:italic}
+.say p{margin:0 0 6px}.say p:last-child{margin:0}
+
+.q{display:grid;grid-template-columns:22px 1fr;gap:10px;padding:8px 10px;border-radius:6px;margin:2px 0}
+.q:hover{background:var(--soft)}
+.q input{margin:4px 0 0;width:16px;height:16px;accent-color:var(--accent)}
+.q.done .qt{color:var(--muted);text-decoration:line-through;text-decoration-color:var(--line)}
+.qt{font-weight:500}
+.q .rel{color:var(--muted);font-size:14px;margin-top:2px}
+.q .rel::before{content:"↳ ";color:var(--accent)}
+.tags{display:inline-flex;gap:4px;margin-left:6px;vertical-align:middle}
+.f{font-family:"IBM Plex Mono",monospace;font-size:11px;padding:0 5px;border:1px solid var(--line);border-radius:4px;color:var(--muted);cursor:help}
+.star{color:var(--accent);font-weight:600;margin-right:4px}
+.q[data-min="30"]{position:relative}
+.q[data-min="30"] .qt::after{content:"30 min";font-family:"IBM Plex Mono",monospace;font-size:10px;color:var(--muted);border:1px dashed var(--line);border-radius:4px;padding:0 5px;margin-left:8px;vertical-align:middle}
+body[data-fmt="20"] .q[data-min="30"]{display:none}
+
+.branch{border-radius:6px;padding:6px 8px 8px;margin:8px 0}
+.branch .bh{font-size:11px;letter-spacing:.06em;text-transform:uppercase;font-weight:600;padding:2px 10px 4px}
+.branch[data-seg="A"]{background:var(--segA-bg)}.branch[data-seg="A"] .bh{color:var(--segA)}
+.branch[data-seg="B"]{background:var(--segB-bg)}.branch[data-seg="B"] .bh{color:var(--segB)}
+.branch[data-seg="C"]{background:var(--segC-bg)}.branch[data-seg="C"] .bh{color:var(--segC)}
+.branch .q:hover{background:rgba(127,127,127,.12)}
+body[data-seg="A"] .branch:not([data-seg="A"]),body[data-seg="B"] .branch:not([data-seg="B"]),body[data-seg="C"] .branch:not([data-seg="C"]){display:none}
+body[data-seg="A"] .only-unknown,body[data-seg="B"] .only-unknown,body[data-seg="C"] .only-unknown{display:none}
+
+.card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px 16px}
+.card h3{font-size:14px;margin-bottom:8px}
+.card ul{margin:0;padding-left:18px}
+.card li{margin:3px 0;font-size:13.5px}
+.tl{list-style:none;padding:0;margin:0}
+.tl li{display:flex;gap:10px;padding:4px 0;font-size:13.5px;border-bottom:1px dashed var(--line)}
+.tl li:last-child{border:0}
+.tl .m{width:62px;flex:none;color:var(--muted);font-size:12px;padding-top:2px}
+.tl a{color:inherit;text-decoration:none}
+.tl a:hover{color:var(--accent)}
+.tl li.now .m{color:var(--accent);font-weight:500}
+.words dt{font-weight:600;font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-top:8px}
+.words dt:first-child{margin-top:0}
+.words dd{margin:2px 0 0;font-size:13.5px}
+.words .no{color:var(--warn)}
+.legend li{display:grid;grid-template-columns:30px 1fr;gap:6px;font-size:13px}
+.legend .f{justify-self:start}
+.cr td{vertical-align:top;padding:4px 6px;font-size:13px;border-bottom:1px solid var(--line)}
+.cr td:first-child{font-weight:600;white-space:nowrap;width:38%}
+.cr{width:100%;border-collapse:collapse}
+.scroll{overflow-x:auto}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.actions button{border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:5px 10px;font-size:13px}
+.actions button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:8px 14px;border-radius:6px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.show{opacity:1}
+@media print{.top,.rail,.actions{display:none}.wrap{display:block;padding:0}.main{max-width:none}.branch{display:block!important}.q[data-min="30"]{display:grid!important}body{background:#fff;color:#000}}
+@media (prefers-reduced-motion:reduce){.toast{transition:none}}
+</style>
+
+<header class="top"><div class="top-in">
+  <div class="brand"><h1>Script RSSI Fleuret</h1><small>Entretien exploratoire · v2 du 18 sept. 2026 · 15 entretiens derrière</small></div>
+  <div class="seg" role="tablist" aria-label="Segment">
+    <button data-seg="" class="on"><span class="dot"></span>À qualifier</button>
+    <button data-seg="A"><span class="dot"></span>Grand compte régulé</button>
+    <button data-seg="B"><span class="dot"></span>ETI, RSSI seul</button>
+    <button data-seg="C"><span class="dot"></span>PME tech / fintech</button>
+  </div>
+  <div class="fmt" role="group" aria-label="Durée"><button data-fmt="20" class="on">20 min · LinkedIn</button><button data-fmt="30">30 min · mail</button></div>
+  <div class="timer"><span class="t mono" id="clock">00:00</span><button id="tstart">Démarrer</button><button id="treset" title="Remet le chrono et les cases à zéro">Nouvel entretien</button></div>
+</div></header>
+
+<div class="wrap">
+<main class="main">
+
+<section class="intro">
+  <p><span class="rule">Règle d'or.</span> Avant le bloc 5, on ne prononce ni « IA », ni « continu », ni « abonnement », ni « plateforme ». Ce sont ses mots à lui, pas les nôtres. On dit « test d'intrusion » ou « pentest », jamais « pentest IA ».</p>
+  <p>Chaque question porte le constat qu'elle teste (F1 à F10, légende à droite). <span class="star">★</span> = à poser quoi qu'il arrive. Le reste sert si le temps le permet. Les questions marquées « 30 min » n'apparaissent qu'en format mail.</p>
+  <p>Deux personnes : l'une mène, l'autre coche ici et note dans la fiche CRM. Ancrer chaque sujet dans un cas passé et concret : « la dernière fois que… ». Relancer avec « pourquoi ? » et « dites-m'en plus ».</p>
+</section>
+
+<section class="block" id="b0">
+  <div class="block-h"><h2>Ouverture</h2><span class="when">⏱ <b>0 → 1 min</b></span></div>
+  <div class="say">
+    <p>Merci de nous accorder ce temps. On est trois étudiants d'X-HEC Entrepreneurs et on fait une étude sur la façon dont les entreprises achètent et utilisent les tests d'intrusion. C'est exploratoire, on n'a rien à vendre.</p>
+    <p>On travaille pour Fleuret AI, une jeune entreprise de cyber qui nous a confié l'étude, on vous en dit un mot à la fin. On enregistre pour ne rien perdre, ça reste dans l'équipe ? On en a pour vingt minutes.</p>
+  </div>
+  <p class="goal">Dire « test d'intrusion » et « Fleuret » dès la première minute : sinon la question « votre projet, c'est quoi ? » tombe au milieu de l'entretien et casse le fil.</p>
+</section>
+
+<section class="block" id="b1">
+  <div class="block-h"><h2>Qualifier</h2><span class="when">⏱ <b>1 → 3 min</b></span></div>
+  <p class="goal">Trois questions pour choisir la branche. Si la fiche CRM répond déjà, sauter et sélectionner le segment en haut.</p>
+  <div class="q"><input type="checkbox"><div><span class="qt"><span class="star">★</span>Vous êtes RSSI à plein temps ? Vous êtes combien sur la sécurité ?</span><div class="rel">Seul avec une casquette DSI → ETI. Équipe de 10 et plus → grand compte. 2 ou 3 cyber dans une boîte tech → PME tech.</div></div></div>
+  <div class="q"><input type="checkbox"><div><span class="qt"><span class="star">★</span>Qu'est-ce qui vous impose des tests ? Un régulateur, une certification, vos clients ?</span><div class="rel">DORA, TLPT, appel d'offres → A. TISAX, NIS2, PASSI → B. ISO 27001, SOC 2, SWIFT, questionnaires clients → C.</div></div></div>
+  <div class="q"><input type="checkbox"><div><span class="qt"><span class="star">★</span>Comment se décide le budget sécurité chez vous, et qui signe ?</span><div class="rel">COMEX mensuel et décharge signée → B. Enveloppe annuelle et unités d'œuvre → A. Arbitrage CTO / DG au cas par cas → C.</div></div></div>
+  <div class="only-unknown goal">→ Choisir le segment en haut de page. Les blocs suivants se recolorent.</div>
+</section>
+
+<section class="block" id="b2">
+  <div class="block-h"><h2>Le dernier pentest, en vrai</h2><span class="when">⏱ <b>3 → 8 min</b></span></div>
+  <p class="goal">Un cas concret, pas des opinions. On veut le déclencheur, le périmètre, le prix, le prestataire et comment il a été choisi.</p>
+  <div class="q"><input type="checkbox"><div><span class="qt"><span class="star">★</span>Racontez-moi votre dernier test d'intrusion : qu'est-ce qui l'a déclenché, sur quel périmètre, qui l'a fait ?<span class="tags"><span class="f" title="Le pentest est acheté comme preuve, pas comme protection">F1</span><span class="f" title="Valeur = humain rare et réputation, rotation annuelle">F7</span></span></span><div class="rel">Certification, contrat client, mise en prod majeure, incident ? Si « c'est annuel » : pourquoi une fois et pas deux, ni zéro ?</div></div></div>
+  <div class="q"><input type="checkbox"><div><span class="qt"><span class="star">★</span>Ça vous a coûté combien, en ordre de grandeur, et qu'est-ce qui vous retient d'en faire plus ?<span class="tags"><span class="f" title="Budget petit et borné par le prix">F2</span></span></span><div class="rel">Ils répondent en fourchette. Noter le prix par test ET l'enveloppe annuelle. « Le facteur financier ? » suffit souvent.</div></div></div>
+  <div class="q"><input type="checkbox"><div><span class="qt">Sur quoi vous êtes-vous basé pour choisir ce prestataire ? Vous en changez ?<span class="tags"><span class="f" title="Valeur = humain rare et réputation">F7</span></span></span><div class="rel">PASSI, cabinet renommé, bouche-à-oreille du club RSSI, cahier des charges. La rotation annuelle est notre fenêtre d'entrée : « quand est le prochain appel d'offres ? »</div></div></div>
+  <div class="q" data-min="30"><input type="checkbox"><div><span class="qt">Pourquoi n'étiez-vous pas satisfait du précédent ?<span class="tags"><span class="f">F7</span></span></span><div class="rel">L'insatisfaction passée donne le vrai critère d'achat : accompagnement, demandes non traitées, rapport inutilisable.</div></div></div>
+  <div class="branch" data-seg="A"><div class="bh">Grand compte régulé</div>
+    <div class="q"><input type="checkbox"><div><span class="qt"><span class="star">★</span>Dans votre appel d'offres, comment sont définies les unités d'œuvre, et combien restent non consommées en fin d'année ?<span class="tags"><span class="f">F2</span><span class="f" title="Pool et crédits passent, le mot token ne passe pas">F10</span></span></span><div class="rel">C'est le modèle d'achat qu'ils connaissent déjà : un pool de tests à consommer. Noter le prix d'une unité.</div></div></div>
+    <div class="q"><input type="checkbox"><div><span class="qt">Pour un TLPT ou un audit DORA, que doit contenir le livrable et qui doit l'avoir signé pour qu'il soit accepté ?<span class="tags"><span class="f">F1</span><span class="f" title="IA acceptée comme accélérateur, refusée comme signataire">F6</span></span></span></div></div>
+  </div>
+  <div class="branch" data-seg="B"><div class="bh">ETI industrielle, RSSI seul</div>
+    <div class="q"><input type="checkbox"><div><span class="qt"><span class="star">★</span>Quand vous présentez ce budget en COMEX, qu'est-ce qui fait passer ou refuser la ligne ?<span class="tags"><span class="f">F2</span></span></span><div class="rel">Décharge de responsabilité signée par la direction ? Combien de temps entre la demande et le oui ?</div></div></div>
+    <div class="q"><input type="checkbox"><div><span class="qt">Votre audit PASSI ou TISAX, il couvre quoi exactement, et qu'est-ce qu'il laisse de côté ?<span class="tags"><span class="f">F1</span></span></span><div class="rel">Audit de configuration confondu avec test d'intrusion : faire préciser. Réseau industriel inclus ou non ?</div></div></div>
+  </div>
+  <div class="branch" data-seg="C"><div class="bh">PME tech / fintech</div>
+    <div class="q"><input type="checkbox"><div><span class="qt"><span class="star">★</span>Quand un client ou un auditeur exige un pentest dans un questionnaire, qu'est-ce qu'il accepte exactement : quelle date, quel périmètre, quelle signature ?<span class="tags"><span class="f">F1</span><span class="f">F6</span></span></span><div class="rel">C'est là que se joue la « preuve ». Un rapport d'il y a 14 mois passe-t-il ? Un rapport sans nom de cabinet ?</div></div></div>
+    <div class="q"><input type="checkbox"><div><span class="qt">Vous payez déjà un outil de test automatique ? Combien, par quoi (par URL, par actif, par an), et il tient sa promesse ?<span class="tags"><span class="f">F6</span><span class="f">F10</span></span></span></div></div>
+  </div>
+</section>
+
+<section class="block" id="b3">
+  <div class="block-h"><h2>Après le rapport</h2><span class="when">⏱ <b>8 → 12 min</b></span></div>
+  <p class="goal">Le constat le plus partagé : le goulot est dans la remédiation, pas dans la détection. Creuser avec des chiffres.</p>
+  <div class="q"><input type="checkbox"><div><span class="qt"><span class="star">★</span>Le rapport arrive. Concrètement, il se passe quoi ensuite, et qui fait quoi ?<span class="tags"><span class="f" title="Le goulot est après le rapport">F3</span></span></span><div class="rel">Tickets, priorisation, patch, contre-audit. « Le rapport est stocké dans un coin » est une réponse fréquente : la faire assumer.</div></div></div>
+  <div class="q"><input type="checkbox"><div><span class="qt"><span class="star">★</span>Sur le dernier rapport, combien de vulnérabilités sont encore ouvertes aujourd'hui, et qui a signé l'acceptation du risque ?<span class="tags"><span class="f">F3</span><span class="f" title="L'IA accélère l'attaque, le KPI devient le délai de remédiation">F8</span></span></span><div class="rel">Peur de la régression, pas d'outil de retour arrière, fenêtre de patch trimestrielle : noter le délai réel entre découverte et correction.</div></div></div>
+  <div class="q"><input type="checkbox"><div><span class="qt">Le goulot, chez vous, c'est trouver les failles ou les corriger ?<span class="tags"><span class="f">F3</span></span></span><div class="rel">Réponse quasi unanime « corriger ». Demander pourquoi : humain, gestion du changement, décision.</div></div></div>
+  <div class="q" data-min="30"><input type="checkbox"><div><span class="qt">Si on vous libérait une journée par semaine, quelle tâche vous laisseriez tomber en premier ?<span class="tags"><span class="f">F3</span></span></span><div class="rel">Fait sortir des angles hors pentest : tableau de bord de reporting, questionnaires clients, revue des tiers.</div></div></div>
+  <div class="branch" data-seg="A"><div class="bh">Grand compte régulé</div>
+    <div class="q"><input type="checkbox"><div><span class="qt">Comment vous priorisez entre les rapports de pentest, du bug bounty, des scanners ? Un seul tableau ou plusieurs ?<span class="tags"><span class="f">F3</span></span></span><div class="rel">Reporting « dispatché partout » est la tâche la plus lourde citée. Les faux positifs des rapports automatiques aussi.</div></div></div>
+  </div>
+  <div class="branch" data-seg="B"><div class="bh">ETI industrielle, RSSI seul</div>
+    <div class="q"><input type="checkbox"><div><span class="qt">Une faille critique tombe un vendredi soir. Il se passe quoi, et en combien d'heures ?<span class="tags"><span class="f">F8</span></span></span><div class="rel">« 24 heures c'est déjà trop long » d'un côté, « un wagon de patchs par trimestre » de l'autre : où est-il ?</div></div></div>
+  </div>
+  <div class="branch" data-seg="C"><div class="bh">PME tech / fintech</div>
+    <div class="q"><input type="checkbox"><div><span class="qt"><span class="star">★</span>Entre la mise en prod d'un sprint et le moment où c'est testé, il se passe combien de temps ? Vous voudriez le déclencher depuis la CI/CD ?<span class="tags"><span class="f">F3</span><span class="f">F8</span></span></span><div class="rel">Qui accepte le risque entre deux tests : DG, CTO, revue par les pairs ?</div></div></div>
+  </div>
+</section>
+
+<section class="block" id="b4">
+  <div class="block-h"><h2>Entre deux tests</h2><span class="when">⏱ <b>12 → 14 min</b></span></div>
+  <p class="goal">Ne pas dire « continu ». Tester si le trou entre deux tests est un risque accepté, déjà couvert, ou une douleur. Et faire sortir l'inventaire et les tiers.</p>
+  <div class="q"><input type="checkbox"><div><span class="qt"><span class="star">★</span>Entre deux tests, qu'est-ce qui tourne pour vous rassurer ? Et ce qui reste à découvert, c'est accepté par qui ?<span class="tags"><span class="f" title="Le continu est souhaité en principe, rejeté sous forme de pentest">F5</span></span></span><div class="rel">Scanners, SOC, EDR, bug bounty. « Risque accepté » sans hésiter = segment peu réceptif au récurrent.</div></div></div>
+  <div class="q"><input type="checkbox"><div><span class="qt"><span class="star">★</span>Vous avez une liste à jour de ce qui est exposé sur internet ? Qui la tient, depuis quand ?<span class="tags"><span class="f" title="Visibilité = connaître son SI">F4</span></span></span><div class="rel">« On ne protège que ce qu'on connaît. » Un serveur oublié trouvé par hasard = anecdote à noter.</div></div></div>
+  <div class="q"><input type="checkbox"><div><span class="qt">D'où sont venus vos derniers incidents ?<span class="tags"><span class="f" title="Le risque tiers est la première source d'incident citée">F9</span></span></span><div class="rel">Souvent les prestataires et fournisseurs. Personne ne relie ça au pentest : « vous testez vos tiers ? vous pourriez leur imposer un test ? »</div></div></div>
+  <div class="branch" data-seg="A"><div class="bh">Grand compte régulé</div>
+    <div class="q" data-min="30"><input type="checkbox"><div><span class="qt">Vous évaluez combien de sous-traitants par an ? Un test imposé à moins de 5 000 € remplacerait-il le questionnaire ?<span class="tags"><span class="f">F9</span><span class="f">F10</span></span></span></div></div>
+  </div>
+  <div class="branch" data-seg="B"><div class="bh">ETI industrielle, RSSI seul</div>
+    <div class="q" data-min="30"><input type="checkbox"><div><span class="qt">Votre réseau industriel, il est dans le périmètre des tests ? Qui y touche ?<span class="tags"><span class="f">F4</span></span></span></div></div>
+  </div>
+  <div class="branch" data-seg="C"><div class="bh">PME tech / fintech</div>
+    <div class="q" data-min="30"><input type="checkbox"><div><span class="qt">Vos dépendances et packages, vous les suivez comment ? À la main ?<span class="tags"><span class="f">F4</span><span class="f">F9</span></span></span></div></div>
+  </div>
+</section>
+
+<section class="block" id="b5">
+  <div class="block-h"><h2>Réaction à l'offre</h2><span class="when">⏱ <b>14 → 19 min</b></span></div>
+  <p class="goal">Présenter en trente secondes, dans leurs mots. Puis faire sortir les trois objections connues plutôt qu'attendre qu'elles viennent.</p>
+  <div class="say">
+    <p>Fleuret fait des tests d'intrusion réalisés par des agents logiciels, avec un pentester qui relit et signe : un test étendu livré en quelques heures au lieu de deux semaines, avec les chemins de compromission et un rapport prêt à ticketer. Hébergé en France.</p>
+    <p>Ce qu'on explore : au lieu d'un test par an, vous achetez l'équivalent de dix tests étendus à consommer dans l'année, sur les périmètres et au moment que vous choisissez, par exemple à chaque grosse mise en prod.</p>
+  </div>
+  <div class="q"><input type="checkbox"><div><span class="qt"><span class="star">★</span>Première réaction ? Qu'est-ce qui vous fait tiquer ?<span class="tags"><span class="f" title="IA acceptée comme accélérateur, refusée comme signataire">F6</span></span></span></div></div>
+  <div class="q"><input type="checkbox"><div><span class="qt"><span class="star">★</span>Quels outils de test automatisés vous avez déjà évalués ou vus en démo, et pourquoi vous n'avez pas signé ?<span class="tags"><span class="f">F6</span></span></span><div class="rel">Objection « ça existe déjà, c'est du marketing ». Noms cités, prix, ce qui a manqué.</div></div></div>
+  <div class="q"><input type="checkbox"><div><span class="qt"><span class="star">★</span>À qui montrez-vous le rapport en dehors de votre équipe, et qu'est-ce qui le rend acceptable pour eux ?<span class="tags"><span class="f">F6</span><span class="f">F1</span></span></span><div class="rel">Objection « pas de valeur de preuve ». La signature du pentester suffit-elle ? Le nom du cabinet ? La qualification PASSI ?</div></div></div>
+  <div class="q"><input type="checkbox"><div><span class="qt">La dernière fois qu'un test a perturbé la production, ça s'est passé comment ? Quelles garanties vous exigez depuis ?<span class="tags"><span class="f">F6</span></span></span><div class="rel">Objection « ça va casser la prod ». Réponse concrète attendue : fenêtre, environnement de préprod, périmètre exclu.</div></div></div>
+  <div class="q"><input type="checkbox"><div><span class="qt"><span class="star">★</span>Un test étendu de ce type, vous le paieriez combien ? Vous pouvez dire zéro. Et l'équivalent de dix tests dans l'année ?<span class="tags"><span class="f" title="Pool et crédits passent, le mot token ne passe pas">F10</span><span class="f">F2</span></span></span><div class="rel">Ne donner nos chiffres que s'il ne se prononce pas : un test sous 5 000 €, le pool autour de 20 000 €. Jamais le mot « token ». Noter ce qu'il retirerait du budget pour le financer.</div></div></div>
+  <div class="q" data-min="30"><input type="checkbox"><div><span class="qt">Un hébergement sur un cloud américain : c'est un non ferme ou c'est négociable ?<span class="tags"><span class="f">F6</span></span></span></div></div>
+  <div class="q" data-min="30"><input type="checkbox"><div><span class="qt">Qu'est-ce qui ferait que vous n'achèteriez jamais ?<span class="tags"><span class="f">F6</span></span></span></div></div>
+  <div class="branch" data-seg="A"><div class="bh">Grand compte régulé</div>
+    <div class="q"><input type="checkbox"><div><span class="qt"><span class="star">★</span>Ce pool de tests, il rentrerait dans vos unités d'œuvre de l'appel d'offres, ou à côté ? Et pour vos sous-traitants ?<span class="tags"><span class="f">F10</span><span class="f">F9</span></span></span><div class="rel">Pentera et le bug bounty occupent déjà la place du « continu » : chercher l'entrée par les tiers et les nouvelles applis.</div></div></div>
+  </div>
+  <div class="branch" data-seg="B"><div class="bh">ETI industrielle, RSSI seul</div>
+    <div class="q"><input type="checkbox"><div><span class="qt"><span class="star">★</span>Qui signe 20 000 € chez vous, et en combien de temps ? Vous commenceriez plutôt par un petit test pour voir ?<span class="tags"><span class="f">F10</span><span class="f">F2</span></span></span><div class="rel">Segment le plus réceptif à condition d'un livrable actionnable, d'un hébergement souverain et d'une caution humaine. Vérifier les trois.</div></div></div>
+  </div>
+  <div class="branch" data-seg="C"><div class="bh">PME tech / fintech</div>
+    <div class="q"><input type="checkbox"><div><span class="qt"><span class="star">★</span>Par rapport à ce que vous payez déjà par URL ou par an, vous préféreriez payer par actif, par test, ou en abonnement ?<span class="tags"><span class="f">F10</span></span></span><div class="rel">Le récurrent est rejeté dans ce segment : on cherche plutôt le test à la demande à prix plancher qui passe chez l'auditeur.</div></div></div>
+  </div>
+</section>
+
+<section class="block" id="b6">
+  <div class="block-h"><h2>Clôture</h2><span class="when">⏱ <b>19 → 20 min</b></span></div>
+  <div class="q"><input type="checkbox"><div><span class="qt"><span class="star">★</span>Quelle question on aurait dû vous poser ?</span></div></div>
+  <div class="q"><input type="checkbox"><div><span class="qt"><span class="star">★</span>Vous connaissez deux personnes concernées par ces sujets à qui on pourrait parler ? On peut dire que ça vient de vous ?</span><div class="rel">Meilleur canal vers les 100 entretiens. Proposer en échange un scan externe gratuit ou une checklist DORA / NIS2.</div></div></div>
+  <div class="q"><input type="checkbox"><div><span class="qt">On vous envoie la synthèse de l'étude ? On peut vous recontacter pour un retour ?</span></div></div>
+  <p class="goal">Ensuite, dans l'heure : audio déposé dans le CRM (la fiche passe en Interviewé), grille ci-contre remplie dans la fiche Notion.</p>
+  <div class="actions"><button class="primary" id="copycr">Copier la grille de compte rendu</button><button onclick="window.print()">Imprimer</button></div>
+</section>
+
+</main>
+
+<aside class="rail">
+  <div class="card">
+    <h3>Déroulé</h3>
+    <ul class="tl" id="tl">
+      <li data-from="0"><span class="m mono">0–1</span><a href="#b0">Ouverture</a></li>
+      <li data-from="1"><span class="m mono">1–3</span><a href="#b1">Qualifier</a></li>
+      <li data-from="3"><span class="m mono">3–8</span><a href="#b2">Le dernier pentest</a></li>
+      <li data-from="8"><span class="m mono">8–12</span><a href="#b3">Après le rapport</a></li>
+      <li data-from="12"><span class="m mono">12–14</span><a href="#b4">Entre deux tests</a></li>
+      <li data-from="14"><span class="m mono">14–19</span><a href="#b5">Réaction à l'offre</a></li>
+      <li data-from="19"><span class="m mono">19–20</span><a href="#b6">Clôture</a></li>
+    </ul>
+    <p class="goal" style="margin:8px 0 0;font-size:12px">Format 30 min : même ordre, chaque bloc s'allonge d'un tiers et les questions « 30 min » s'ajoutent.</p>
+  </div>
+  <div class="card">
+    <h3>Leurs mots, pas les nôtres</h3>
+    <dl class="words">
+      <dt>À employer</dt><dd>test d'intrusion · boîte noire / grise / blanche · PASSI · surface exposée · chemin de compromission · contre-audit · remédiation, patcher · criticité · cartographie · unités d'œuvre, jours-homme · IA de confiance</dd>
+      <dt>À bannir</dt><dd class="no">token · pentest IA (seul) · couverture continue · plateforme · bug bounty à coût fixe · remplacer le pentester</dd>
+    </dl>
+  </div>
+  <div class="card">
+    <h3>Les dix constats testés</h3>
+    <ul class="legend" style="list-style:none;padding:0">
+      <li><span class="f">F1</span>Le pentest est acheté comme preuve, pas comme protection</li>
+      <li><span class="f">F2</span>Budget petit, borné par le prix</li>
+      <li><span class="f">F3</span>Le goulot est après le rapport</li>
+      <li><span class="f">F4</span>« Visibilité » = connaître son SI</li>
+      <li><span class="f">F5</span>Continu souhaité en principe, rejeté en pentest</li>
+      <li><span class="f">F6</span>IA accélérateur oui, signataire non</li>
+      <li><span class="f">F7</span>Humain rare, réputation, rotation annuelle</li>
+      <li><span class="f">F8</span>Le KPI devient le délai de remédiation</li>
+      <li><span class="f">F9</span>Tiers = première source d'incident</li>
+      <li><span class="f">F10</span>Pool et crédits oui, « token » non</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Grille de compte rendu</h3>
+    <div class="scroll"><table class="cr" id="crtable">
+      <tr><td>Segment</td><td>A / B / C, temps plein, taille équipe, réglementation</td></tr>
+      <tr><td>Dernier pentest</td><td>Déclencheur, périmètre, prix, prestataire, critère de choix</td></tr>
+      <tr><td>Après le rapport</td><td>Qui fait quoi, vulnérabilités ouvertes, délai de remédiation, qui signe le risque</td></tr>
+      <tr><td>Entre deux tests</td><td>Outils en place, risque accepté ou non, inventaire, tiers</td></tr>
+      <tr><td>Réaction à l'offre</td><td>Première réaction, outils déjà évalués, preuve acceptable, prod, prix dit, hébergement</td></tr>
+      <tr><td>Objections</td><td>Dans ses mots</td></tr>
+      <tr><td>Verbatims</td><td>Deux ou trois phrases, avec minute</td></tr>
+      <tr><td>Constats</td><td>F confirmés / nuancés / contredits</td></tr>
+      <tr><td>Suite</td><td>Mises en relation, recontact, synthèse promise</td></tr>
+    </table></div>
+  </div>
+</aside>
+</div>
+<div class="toast" id="toast">Copié</div>
+
+<script>
+(function(){
+  var body=document.body, KEY='fleuret-script-v2';
+  var st={seg:'',fmt:'20',checked:{},start:null};
+  try{var s=JSON.parse(localStorage.getItem(KEY)||'{}');if(s&&typeof s==='object')st=Object.assign(st,s);}catch(e){}
+  function save(){try{localStorage.setItem(KEY,JSON.stringify(st));}catch(e){}}
+  function apply(){
+    body.setAttribute('data-seg',st.seg);body.setAttribute('data-fmt',st.fmt);
+    document.querySelectorAll('.seg button').forEach(function(b){b.classList.toggle('on',b.dataset.seg===st.seg);b.setAttribute('aria-selected',b.dataset.seg===st.seg);});
+    document.querySelectorAll('.fmt button').forEach(function(b){b.classList.toggle('on',b.dataset.fmt===st.fmt);});
+  }
+  document.querySelectorAll('.seg button').forEach(function(b){b.addEventListener('click',function(){st.seg=b.dataset.seg;save();apply();});});
+  document.querySelectorAll('.fmt button').forEach(function(b){b.addEventListener('click',function(){st.fmt=b.dataset.fmt;save();apply();});});
+  var qs=document.querySelectorAll('.q');
+  qs.forEach(function(q,i){var c=q.querySelector('input');if(!c)return;c.checked=!!st.checked[i];q.classList.toggle('done',c.checked);
+    c.addEventListener('change',function(){st.checked[i]=c.checked;q.classList.toggle('done',c.checked);save();});});
+  var clock=document.getElementById('clock'),tstart=document.getElementById('tstart'),tl=document.querySelectorAll('#tl li');
+  function limit(){return st.fmt==='30'?30:20;}
+  function tick(){
+    if(!st.start){clock.textContent='00:00';clock.classList.remove('over');tl.forEach(function(l){l.classList.remove('now');});return;}
+    var s=Math.floor((Date.now()-st.start)/1000),m=Math.floor(s/60);
+    clock.textContent=String(m).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
+    clock.classList.toggle('over',m>=limit());
+    var scale=limit()/20,cur=null;tl.forEach(function(l){if(m>=Number(l.dataset.from)*scale)cur=l;l.classList.remove('now');});if(cur)cur.classList.add('now');
+  }
+  tstart.addEventListener('click',function(){if(st.start){st.start=null;tstart.textContent='Démarrer';}else{st.start=Date.now();tstart.textContent='Arrêter';}save();tick();});
+  if(st.start)tstart.textContent='Arrêter';
+  setInterval(tick,1000);tick();
+  document.getElementById('treset').addEventListener('click',function(){st.checked={};st.start=null;tstart.textContent='Démarrer';save();qs.forEach(function(q){var c=q.querySelector('input');if(c)c.checked=false;q.classList.remove('done');});tick();});
+  document.getElementById('copycr').addEventListener('click',function(){
+    var rows=[].map.call(document.querySelectorAll('#crtable tr'),function(r){return '**'+r.cells[0].textContent+'** ('+r.cells[1].textContent+') : ';});
+    var txt='Entretien du '+new Date().toLocaleDateString('fr-FR')+' · segment '+(st.seg||'?')+' · format '+st.fmt+' min\n\n'+rows.join('\n');
+    var t=document.getElementById('toast');
+    function done(ok){t.textContent=ok?'Grille copiée, à coller dans la fiche Notion':'Copie impossible ici : sélectionne le tableau à la main';t.classList.add('show');setTimeout(function(){t.classList.remove('show');},2200);}
+    if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt).then(function(){done(true);},function(){done(false);});}else done(false);
+  });
+  apply();
+})();
+</script>
