@@ -726,6 +726,7 @@ function App() {
   const [people, setPeople] = useState([]);
   const [who, setWho] = useState('');
   const [ro, setRo] = useState(false);
+  const [admin, setAdmin] = useState(false);
   const [prospects, setProspects] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [filters, setFilters] = useState({ q: '', contacte: 'all', relance: false, degre: 'all', zone: 'all', email: 'all' });
@@ -752,7 +753,7 @@ function App() {
   const load = async () => {
     try {
       const [me, list, tpls] = await Promise.all([api('/me'), api('/prospects'), api('/templates')]);
-      setPeople(me.people); setWho(me.who); setRo(!!me.readOnly); setProspects(list); setTemplates(tpls); setAuth('ok');
+      setPeople(me.people); setWho(me.who); setRo(!!me.readOnly); setAdmin(!!me.admin); setProspects(list); setTemplates(tpls); setAuth('ok');
       document.body.classList.toggle('ro', !!me.readOnly);
       api('/notion/status').then((s) => setNotionOn(!!s.enabled)).catch(() => setNotionOn(false));
     } catch (e) {
@@ -831,6 +832,7 @@ function App() {
         <button class=${'seg-btn' + (view === 'matrice' ? ' active' : '')} onClick=${() => { setView('matrice'); setSelectedId(null); history.replaceState(null, '', '#matrice'); }} title="Matrice du problème et des opportunités (profils × problèmes, insights des entretiens)">Matrice</button>
       </div>
       <a class="btn" href="/api/export.csv" download>Exporter CSV</a>
+      ${admin && html`<a class="btn" href="/api/admin/backup.sqlite" download title="Télécharge une copie complète de la base (prospects, entreprises, transcripts, matrice, insights) au format SQLite. Les audios ne sont pas inclus.">Sauvegarde</a>`}
       ${!ro && html`<button class="btn" onClick=${() => setModal('linkedin')} title="Ajouter une personne avec son lien LinkedIn, sans l’extension">＋ Depuis LinkedIn</button>
       <button class="btn" onClick=${() => setModal('extension')}>Extension</button>
       ${notionOn && html`<button class="btn" disabled=${notionBusy} onClick=${syncNotion} title="Entretiens réalisés ↔ Notion « Liste de contacts »">${notionBusy ? 'Notion…' : 'Notion'}</button>`}

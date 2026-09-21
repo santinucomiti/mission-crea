@@ -2,6 +2,7 @@ import http from 'node:http';
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdir, readFile, rm, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { pipeline } from 'node:stream/promises';
 import { basename, extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,6 +22,8 @@ const USERS = (process.env.OUTREACH_USERS || '')
 const SECRET = process.env.OUTREACH_SECRET;
 // OUTREACH_READONLY="Fabrice" — comptes qui voient tout mais ne modifient rien (encadrant, relecteur).
 const READONLY = new Set((process.env.OUTREACH_READONLY || '').split(',').map((s) => s.trim()).filter(Boolean));
+// OUTREACH_ADMIN="Santinu" — comptes administrateurs : seuls à pouvoir télécharger la sauvegarde complète de la base.
+const ADMINS = new Set((process.env.OUTREACH_ADMIN || '').split(',').map((s) => s.trim()).filter(Boolean));
 const DB_PATH = resolve(ROOT, process.env.DB_PATH || './data/outreach.sqlite');
 const FILES_DIR = resolve(ROOT, process.env.FILES_DIR || './data/files');
 const PHOTOS_DIR = resolve(ROOT, process.env.PHOTOS_DIR || './data/photos');
@@ -289,9 +292,34 @@ async function api(req, res, url) {
 
   if (path === '/me' && method === 'GET') {
     return json(res, 200, {
-      who, readOnly,
+      who, readOnly, admin: ADMINS.has(who),
       people: db.prepare('SELECT name, color FROM people ORDER BY position').all(),
     });
+  }
+
+  // ---- sauvegarde complète de la base (admin) ----
+  // VACUUM INTO écrit une copie cohérente et compacte de la base (WAL inclus) sans bloquer les autres
+  // requêtes ; on l'envoie puis on l'efface. Le fichier obtenu se rouvre tel quel (sqlite3, DB Browser,
+  // ou en le remettant à la place de data/outreach.sqlite). Les audios (data/files/) n'en font pas partie.
+  if (path === '/admin/backup.sqlite' && method === 'GET') {
+    if (!ADMINS.has(who)) return json(res, 403, { error: 'réservé aux administrateurs' });
+    const stamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+    const tmp = join(tmpdir(), `outreach-backup-${randomUUID()}.sqlite`);
+    try {
+      db.exec(`VACUUM INTO '${tmp.replace(/'/g, "''")}'`);
+      const { size } = await stat(tmp);
+      console.log(`[backup] ${who} télécharge la base (${Math.round(size / 1e6)} Mo)`);
+      res.writeHead(200, {
+        'content-type': 'application/vnd.sqlite3',
+        'content-length': size,
+        'content-disposition': `attachment; filename="outreach-${stamp}.sqlite"`,
+        'cache-control': 'no-store',
+      });
+      await pipeline(createReadStream(tmp), res);
+    } finally {
+      await rm(tmp, { force: true });
+    }
+    return;
   }
 
   // Synchro Notion (entretiens réalisés, deux sens) — à la demande ; aussi toutes les 10 min.

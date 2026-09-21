@@ -41,6 +41,16 @@ Ensuite, depuis ce dossier : `./deploy/deploy.sh` (rsync + restart). La base vit
 
 DNS : `missioncrea.clippingatlas.com` → A `91.134.141.72` (OVH).
 
+## Sauvegarde de la base (administrateurs)
+
+Trois niveaux de compte, tous définis par prénom dans `.env` : lecture seule (`OUTREACH_READONLY`),
+membre (par défaut), administrateur (`OUTREACH_ADMIN`). Un administrateur voit un bouton
+**Sauvegarde** dans la barre du haut : `GET /api/admin/backup.sqlite` fait un `VACUUM INTO` (copie
+cohérente et compacte, sans bloquer les autres) et renvoie le fichier `outreach-<date>.sqlite`.
+Il contient tout (prospects, entreprises, fichiers rattachés, transcripts, matrice, insights) sauf les
+audios eux-mêmes (`data/files/`, ~400 Mo, à récupérer par `rsync` si besoin). Pour restaurer :
+arrêter le service, remplacer `data/outreach.sqlite` (et supprimer `-wal`/`-shm`), redémarrer.
+
 ## Synchro avec l'extension Sales Navigator
 
 Dans l'app, bouton **Extension** → jeton personnel (`Authorization: Bearer <prénom>.<mac>`,
