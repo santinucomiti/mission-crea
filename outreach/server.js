@@ -125,6 +125,65 @@ async function sendPhoto(res, prospect) {
   return pipeline(createReadStream(file), res);
 }
 
+// ---- lecture d'un profil LinkedIn public (sans extension) ----
+const cleanLinkedinUrl = (u) => { const m = String(u || '').trim().match(/linkedin\.com\/in\/([^/?#\s]+)/i); return m ? 'https://www.linkedin.com/in/' + decodeURIComponent(m[1]) : ''; };
+// Lieu tel que LinkedIn l'affiche : « Lyon et périphérie », « Paris, Île-de-France, France », « Greater London Area ».
+const LOC_RE = /^(?:[\p{Lu}][\p{L}' .-]{1,40}(?:,\s*[\p{L}' .-]{2,40}){1,3}|[\p{Lu}][\p{L}' .-]{1,40} (?:et périphérie|Area|Metropolitan Area)|Greater [\p{L}' .-]{2,40}(?: Area)?)$/u;
+const isLoc = (l) => l.length < 70 && !/[.!?]$/.test(l) && LOC_RE.test(l);
+// Sortie « Markdown Content » du lecteur r.jina.ai pour un profil public : titre « Nom - Poste | LinkedIn », puis le corps.
+function parseLinkedinPublic(text) {
+  const title = (text.match(/^Title:\s*(.+)$/m) || [])[1] || '';
+  const [nomComplet, ...rest] = title.replace(/\s*\|\s*LinkedIn\s*$/i, '').split(' - ');
+  const headline = rest.join(' - ').trim();
+  const body = text.replace(/^[\s\S]*?Markdown Content:\s*/m, '');
+  const lines = body.split('\n').map((l) => l.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*_`#>]/g, '').trim()).filter(Boolean);
+  const localisation = lines.slice(0, 60).find((l) => isLoc(l) && !/LinkedIn|profile|connections|followers|abonnés|relations/i.test(l)) || '';
+  const entreprise = (headline.match(/(?:\s(?:at|chez|@)\s|\s[-–|·]\s)([^|@]+?)$/i) || [])[1]?.trim() || '';
+  const iAbout = lines.findIndex((l) => /^(About|À propos|Infos)$/i.test(l));
+  const aPropos = iAbout > -1 ? lines.slice(iAbout + 1, iAbout + 12).filter((l) => !/^(Experience|Expérience|Education|Formation)$/i.test(l)).join(' ').slice(0, 1500) : '';
+  const photoUrl = (text.match(/https:\/\/media\.licdn\.com\/dms\/image\/[^\s)"]+/) || [])[0] || '';
+  const contexte = lines.filter((l) => !/^(Skip to main content|Top Content|People|Learning|Jobs|Games|Join now|Sign in)$/i.test(l)).join('\n').slice(0, 60000);
+  return { nomComplet: (nomComplet || '').trim(), titre: headline, entreprise, localisation, aPropos, photoUrl, contexte };
+}
+// Texte collé depuis la page LinkedIn (Ctrl+A, Ctrl+C sur le profil, toutes langues FR/EN) : on repère le nom,
+// le poste (headline), le lieu, la section « Infos / About » et la première expérience.
+const NAV_RE = /^(Accueil|Home|Réseau|My Network|Emplois|Jobs|Messagerie|Messaging|Notifications|Vous|Me|Pour les entreprises|For Business|Premium|Rechercher|Search|Skip to main content|Passer au contenu principal|Se connecter|Sign in|S’inscrire|Join now|Plus|More|Message|Se connecter|Connect|Suivre|Follow|Ouvrir|Open to|Coordonnées|Contact info|Modifier|Edit)$/i;
+const COUNT_RE = /(relations?|connections?|abonnés|followers|contacts? en commun|mutual connections?)/i;
+const SECTION_RE = /^(Infos|À propos|About|Expérience|Experience|Formation|Education|Activité|Activity|Compétences|Skills|Licences et certifications|Licenses & certifications|Recommandations|Recommendations|Langues|Languages|Centres d’intérêt|Interests|Projets|Projects|Publications|Bénévolat|Volunteering|Sélection|Featured|Services)$/i;
+function parseLinkedinPasted(text, nomComplet) {
+  const lines = text.split('\n').map((l) => l.replace(/\s+/g, ' ').trim()).filter((l) => l && !NAV_RE.test(l));
+  let i = nomComplet ? lines.findIndex((l) => l.toLowerCase() === nomComplet.toLowerCase()) : -1;
+  if (i < 0) {
+    // Le nom : première ligne de 2 à 5 mots capitalisés, suivie de près par la ligne « X relations »
+    const iCount = lines.findIndex((l) => COUNT_RE.test(l) && l.length < 60);
+    const window = lines.slice(Math.max(0, iCount - 12), iCount > 0 ? iCount : 40);
+    const cand = window.find((l) => /^[\p{Lu}][\p{L}'’.-]+(?: [\p{L}'’.-]+){1,4}$/u.test(l) && !LOC_RE.test(l) && l.length < 60);
+    if (cand) { nomComplet = cand.replace(/\s+(MBA|CISSP|CISM|PhD|Dr\.?)$/i, '').trim(); i = lines.indexOf(cand); }
+  }
+  const after = i > -1 ? lines.slice(i + 1, i + 14) : lines.slice(0, 30);
+  const iStop = after.findIndex((l) => COUNT_RE.test(l) || SECTION_RE.test(l));   // « 500+ relations » ou 1re section : fin de l'en-tête
+  const head = iStop > -1 ? after.slice(0, iStop) : after.slice(0, 6);
+  const localisation = head.find((l) => isLoc(l)) || after.find((l) => isLoc(l) && !COUNT_RE.test(l)) || '';
+  const titre = head.find((l) => l !== localisation && l.length > 3 && l.length < 200 && !/^\d/.test(l) && !/^(Voir|See|Il y a|ago)/i.test(l)) || '';
+  let entreprise = (titre.match(/(?:\s(?:at|chez|@)\s|\s[-–|·]\s)([^|@]+?)$/i) || [])[1]?.trim() || '';
+  const iExp = lines.findIndex((l) => /^(Expérience|Experience)$/i.test(l));
+  if (iExp > -1) {
+    // Bloc expérience : [poste] [entreprise · Temps plein] [dates] … ; on prend la ligne qui suit le 1er poste.
+    const exp = lines.slice(iExp + 1, iExp + 8).filter((l) => !/^(Voir|See|Afficher|Show)/i.test(l));
+    // La ligne qui suit le 1er intitulé de poste est l'entreprise (« Acme Ltd · Temps plein »).
+    const firstCompany = (exp[1] || '').replace(/\s*·.*$/, '').trim();
+    if (!entreprise && firstCompany && !/\d{4}/.test(firstCompany)) entreprise = firstCompany;
+  }
+  const iAbout = lines.findIndex((l) => /^(Infos|À propos|About)$/i.test(l));
+  let aPropos = '';
+  if (iAbout > -1) {
+    const out = [];
+    for (const l of lines.slice(iAbout + 1, iAbout + 30)) { if (SECTION_RE.test(l)) break; if (/^…?\s*(plus|more|voir plus|see more)$/i.test(l)) continue; out.push(l); }
+    aPropos = out.join(' ').slice(0, 1500);
+  }
+  return { nomComplet: nomComplet || '', titre, entreprise, localisation, aPropos };
+}
+
 const json = (res, status, body) => {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
   res.end(JSON.stringify(body));
@@ -224,6 +283,7 @@ async function api(req, res, url) {
 
   const who = sessionUser(req);
   if (!who) return json(res, 401, { error: 'non connecté' });
+  let m; // captures des routes paramétrées (déclaré ici : les routes matrice l'utilisent avant les routes fichiers)
   const readOnly = READONLY.has(who);
   if (readOnly && method !== 'GET' && path !== '/logout') return json(res, 403, { error: 'compte en lecture seule : aucune modification possible' });
 
@@ -324,6 +384,149 @@ async function api(req, res, url) {
     return json(res, 200, updateProspect(db, id, { contacte: true }, who));
   }
 
+  // ---- ajout d'un prospect depuis un lien LinkedIn (sans extension) ----
+  // Le profil public est lu via un service de rendu (r.jina.ai) : LinkedIn répond 999 à toute requête directe
+  // depuis un serveur. Marche pour les profils publics ; sinon l'interface propose de coller le texte de la page.
+  if (path === '/linkedin/preview' && method === 'POST') {
+    const b = await readJson(req);
+    const url = cleanLinkedinUrl(b.url);
+    if (!url) return json(res, 400, { error: 'lien LinkedIn invalide (attendu : https://www.linkedin.com/in/…)' });
+    try {
+      const r = await fetch('https://r.jina.ai/' + url, { headers: { accept: 'text/plain' }, signal: AbortSignal.timeout(15_000) });
+      const text = await r.text();
+      const head = text.slice(0, 3000);
+      if (!r.ok || /returned error 999|^Title:\s*(Sign Up|Sign In|LinkedIn Login)?\s*\|?\s*LinkedIn\s*$/mi.test(head) || /Agree & Join LinkedIn|authwall/i.test(head) || !/^Title:\s*\S.+\|\s*LinkedIn/m.test(head)) {
+        return json(res, 200, { found: false, reason: r.ok ? 'LinkedIn refuse la lecture automatique de ce profil (mur de connexion)' : `lecteur indisponible (HTTP ${r.status})` });
+      }
+      const parsed = parseLinkedinPublic(text);
+      if (!parsed.nomComplet) return json(res, 200, { found: false, reason: 'page lue mais nom introuvable' });
+      const existing = findByProfile(db, { url, nomComplet: parsed.nomComplet });
+      return json(res, 200, { found: true, url, ...parsed, existingId: existing?.id || null, existingName: existing?.nom_complet || null });
+    } catch (e) {
+      return json(res, 200, { found: false, reason: /abort|timeout/i.test(e.message) ? 'délai dépassé (30 s)' : e.message });
+    }
+  }
+  if (path === '/linkedin/parse' && method === 'POST') {
+    const b = await readJson(req);
+    const texte = String(b.texte || '').trim();
+    if (!texte) return json(res, 400, { error: 'texte requis' });
+    return json(res, 200, parseLinkedinPasted(texte, String(b.nomComplet || '')));
+  }
+  if (path === '/prospects/from-linkedin' && method === 'POST') {
+    const b = await readJson(req);
+    const url = cleanLinkedinUrl(b.url);
+    const nomComplet = String(b.nomComplet || '').trim();
+    if (!url) return json(res, 400, { error: 'lien LinkedIn invalide' });
+    if (!nomComplet) return json(res, 400, { error: 'nom complet requis' });
+    // Texte collé (Ctrl+A / Ctrl+C sur le profil) : on en extrait ce qui manque, comme le fait l'extension.
+    const pasted = String(b.texteColle || '').trim();
+    const fromPaste = pasted ? parseLinkedinPasted(pasted, nomComplet) : {};
+    const titre = String(b.titre || fromPaste.titre || '').trim();
+    const entreprise = String(b.entreprise || fromPaste.entreprise || '').trim();
+    const localisation = String(b.localisation || fromPaste.localisation || '').trim();
+    const aPropos = String(b.aPropos || fromPaste.aPropos || '').trim();
+    const contexte = String(b.contexte || pasted || '').slice(0, 60000);
+    let row = findByProfile(db, { url, nomComplet });
+    const now = new Date().toISOString();
+    let created = false;
+    if (!row) {
+      const [prenom, ...rest] = nomComplet.split(/\s+/);
+      const id = 'in-' + (url.match(/\/in\/([^/]+)/)?.[1] || normName(nomComplet).replace(/ /g, '-')).slice(0, 80);
+      db.prepare(`INSERT OR IGNORE INTO prospects (id, prenom, nom, nom_complet, nom_norm, titre, entreprise, localisation, a_propos, linkedin_url, contact_par, source_file, imported_at, updated_at)
+        VALUES (@id, @prenom, @nom, @nomComplet, @norm, @titre, @entreprise, @localisation, @aPropos, @url, @who, 'lien-linkedin', @now, @now)`)
+        .run({ id, prenom, nom: rest.join(' '), nomComplet, norm: normName(nomComplet), titre, entreprise, localisation, aPropos, url, who, now });
+      row = db.prepare('SELECT * FROM prospects WHERE id = ?').get(id);
+      created = !!row;
+      if (!row) return json(res, 500, { error: 'création impossible' });
+    }
+    db.prepare(`UPDATE prospects SET linkedin_url = COALESCE(NULLIF(linkedin_url, ''), @url),
+      titre = CASE WHEN titre IS NULL OR titre = '' THEN @titre ELSE titre END,
+      entreprise = CASE WHEN entreprise IS NULL OR entreprise = '' THEN @entreprise ELSE entreprise END,
+      localisation = CASE WHEN localisation IS NULL OR localisation = '' THEN @localisation ELSE localisation END,
+      a_propos = CASE WHEN a_propos IS NULL OR a_propos = '' THEN @aPropos ELSE a_propos END,
+      contexte_linkedin = CASE WHEN @contexte <> '' THEN @contexte ELSE contexte_linkedin END,
+      contexte_maj = CASE WHEN @contexte <> '' THEN @now ELSE contexte_maj END, updated_at = @now WHERE id = @id`)
+      .run({ id: row.id, url, titre, entreprise, localisation, aPropos, contexte, now });
+    if (/^https:\/\/media\.licdn\.com\//.test(b.photoUrl || '')) {
+      db.prepare('UPDATE prospects SET photo_url = ? WHERE id = ?').run(b.photoUrl, row.id);
+      photoFailures.delete(row.id); await unlink(photoFile(row.id)).catch(() => {});
+    }
+    const full = withZone(db.prepare('SELECT p.*, e.domaine FROM prospects p LEFT JOIN entreprises e ON e.entreprise_url = p.entreprise_url WHERE p.id = ?').get(row.id));
+    return json(res, 200, { created, prospect: full });
+  }
+
+  // ---- matrice du problème / des opportunités ----
+  if (path === '/matrice' && method === 'GET') {
+    const axes = db.prepare('SELECT * FROM matrice_axes ORDER BY position, id').all();
+    return json(res, 200, {
+      profils: axes.filter((a) => a.axe === 'profil'),
+      problemes: axes.filter((a) => a.axe === 'probleme'),
+      cases: db.prepare('SELECT * FROM matrice_cases').all(),
+      insights: db.prepare(`SELECT i.*, p.nom_complet, p.entreprise, p.titre AS prospect_titre, f.filename
+        FROM insights i LEFT JOIN prospects p ON p.id = i.prospect_id LEFT JOIN files f ON f.id = i.file_id
+        ORDER BY i.force DESC, i.id`).all(),
+      interviewes: db.prepare(`SELECT p.id, p.nom_complet, p.entreprise, (SELECT f.id FROM files f JOIN transcripts t ON t.file_id = f.id WHERE f.prospect_id = p.id ORDER BY f.uploaded_at DESC LIMIT 1) AS file_id
+        FROM prospects p WHERE p.interviewe = 1 OR EXISTS (SELECT 1 FROM files f WHERE f.prospect_id = p.id) ORDER BY p.nom_complet COLLATE NOCASE`).all(),
+    });
+  }
+  if (path === '/matrice/axes' && method === 'POST') {
+    const b = await readJson(req);
+    if (!['profil', 'probleme'].includes(b.axe) || !String(b.nom || '').trim()) return json(res, 400, { error: 'axe (profil|probleme) et nom requis' });
+    const pos = (db.prepare('SELECT COALESCE(MAX(position), 0) + 1 AS p FROM matrice_axes WHERE axe = ?').get(b.axe)).p;
+    const r = db.prepare('INSERT INTO matrice_axes (axe, nom, description, position, cree_le) VALUES (?, ?, ?, ?, ?)').run(b.axe, String(b.nom).trim(), String(b.description || ''), pos, new Date().toISOString());
+    return json(res, 200, db.prepare('SELECT * FROM matrice_axes WHERE id = ?').get(r.lastInsertRowid));
+  }
+  if ((m = path.match(/^\/matrice\/axes\/(\d+)$/)) && method === 'PATCH') {
+    const b = await readJson(req);
+    const cur = db.prepare('SELECT * FROM matrice_axes WHERE id = ?').get(Number(m[1]));
+    if (!cur) return json(res, 404, { error: 'axe introuvable' });
+    db.prepare('UPDATE matrice_axes SET nom = ?, description = ?, position = ? WHERE id = ?')
+      .run(String(b.nom ?? cur.nom).trim() || cur.nom, String(b.description ?? cur.description ?? ''), Number.isFinite(Number(b.position)) ? Number(b.position) : cur.position, cur.id);
+    return json(res, 200, db.prepare('SELECT * FROM matrice_axes WHERE id = ?').get(cur.id));
+  }
+  if ((m = path.match(/^\/matrice\/axes\/(\d+)$/)) && method === 'DELETE') {
+    const n = db.prepare('SELECT COUNT(*) AS n FROM insights WHERE profil_id = ? OR probleme_id = ?').get(Number(m[1]), Number(m[1])).n;
+    db.prepare('DELETE FROM matrice_axes WHERE id = ?').run(Number(m[1]));
+    return json(res, 200, { ok: true, insightsDeclasses: n });
+  }
+  if ((m = path.match(/^\/matrice\/cases\/(\d+)\/(\d+)$/)) && method === 'PUT') {
+    const b = await readJson(req);
+    const score = (v) => (v === null || v === undefined || v === '' ? null : Math.max(0, Math.min(5, Math.round(Number(v)))));
+    db.prepare(`INSERT INTO matrice_cases (profil_id, probleme_id, attractivite, accessibilite, commentaire, maj, maj_par) VALUES (@p, @q, @a, @b, @c, @now, @who)
+      ON CONFLICT(profil_id, probleme_id) DO UPDATE SET attractivite = excluded.attractivite, accessibilite = excluded.accessibilite, commentaire = excluded.commentaire, maj = excluded.maj, maj_par = excluded.maj_par`)
+      .run({ p: Number(m[1]), q: Number(m[2]), a: score(b.attractivite), b: score(b.accessibilite), c: String(b.commentaire || ''), now: new Date().toISOString(), who });
+    return json(res, 200, db.prepare('SELECT * FROM matrice_cases WHERE profil_id = ? AND probleme_id = ?').get(Number(m[1]), Number(m[2])));
+  }
+  if (path === '/insights' && method === 'POST') {
+    const b = await readJson(req);
+    const texte = String(b.texte || '').trim();
+    if (!texte) return json(res, 400, { error: 'texte requis' });
+    const r = db.prepare(`INSERT INTO insights (texte, verbatim, type, theme, force, prospect_id, file_id, t_debut, profil_id, probleme_id, source, statut, cree_par, cree_le)
+      VALUES (@texte, @verbatim, @type, @theme, @force, @prospect_id, @file_id, @t_debut, @profil_id, @probleme_id, @source, @statut, @who, @now)`).run({
+      texte, verbatim: String(b.verbatim || ''), type: String(b.type || ''), theme: String(b.theme || ''), force: b.force == null || b.force === '' ? null : Math.max(0, Math.min(5, Number(b.force))),
+      prospect_id: b.prospect_id || null, file_id: b.file_id || null, t_debut: b.t_debut == null ? null : Number(b.t_debut),
+      profil_id: b.profil_id ? Number(b.profil_id) : null, probleme_id: b.probleme_id ? Number(b.probleme_id) : null,
+      source: ['interview', 'marche', 'ia'].includes(b.source) ? b.source : 'interview', statut: ['proposé', 'validé', 'rejeté'].includes(b.statut) ? b.statut : 'proposé', who, now: new Date().toISOString() });
+    return json(res, 200, db.prepare('SELECT * FROM insights WHERE id = ?').get(r.lastInsertRowid));
+  }
+  if ((m = path.match(/^\/insights\/(\d+)$/)) && method === 'PATCH') {
+    const b = await readJson(req);
+    const cur = db.prepare('SELECT * FROM insights WHERE id = ?').get(Number(m[1]));
+    if (!cur) return json(res, 404, { error: 'insight introuvable' });
+    const has = (k) => Object.prototype.hasOwnProperty.call(b, k);
+    db.prepare(`UPDATE insights SET texte = @texte, verbatim = @verbatim, type = @type, theme = @theme, force = @force, profil_id = @profil_id, probleme_id = @probleme_id, statut = @statut, prospect_id = @prospect_id, file_id = @file_id, t_debut = @t_debut, maj = @now WHERE id = @id`).run({
+      id: cur.id, texte: has('texte') ? String(b.texte).trim() || cur.texte : cur.texte, verbatim: has('verbatim') ? String(b.verbatim) : cur.verbatim, type: has('type') ? String(b.type) : cur.type, theme: has('theme') ? String(b.theme) : cur.theme,
+      force: has('force') ? (b.force == null || b.force === '' ? null : Math.max(0, Math.min(5, Number(b.force)))) : cur.force,
+      profil_id: has('profil_id') ? (b.profil_id ? Number(b.profil_id) : null) : cur.profil_id, probleme_id: has('probleme_id') ? (b.probleme_id ? Number(b.probleme_id) : null) : cur.probleme_id,
+      statut: has('statut') && ['proposé', 'validé', 'rejeté'].includes(b.statut) ? b.statut : cur.statut,
+      prospect_id: has('prospect_id') ? (b.prospect_id || null) : cur.prospect_id, file_id: has('file_id') ? (b.file_id || null) : cur.file_id, t_debut: has('t_debut') ? (b.t_debut == null ? null : Number(b.t_debut)) : cur.t_debut, now: new Date().toISOString() });
+    return json(res, 200, db.prepare('SELECT * FROM insights WHERE id = ?').get(cur.id));
+  }
+  if ((m = path.match(/^\/insights\/(\d+)$/)) && method === 'DELETE') {
+    db.prepare('DELETE FROM insights WHERE id = ?').run(Number(m[1]));
+    return json(res, 200, { ok: true });
+  }
+
   if (path === '/export.csv' && method === 'GET') {
     const rows = db.prepare(`
       SELECT p.*, e.domaine, (SELECT COUNT(*) FROM files f WHERE f.prospect_id = p.id) AS nb_fichiers
@@ -355,7 +558,6 @@ async function api(req, res, url) {
     return json(res, 200, db.prepare('SELECT p.*, e.domaine FROM prospects p LEFT JOIN entreprises e ON e.entreprise_url = p.entreprise_url ORDER BY p.updated_at DESC LIMIT 5000').all().map(withZone));
   }
 
-  let m;
   if ((m = path.match(/^\/prospects\/([^/]+)$/)) && method === 'PATCH') {
     const patch = await readJson(req);
     try {
