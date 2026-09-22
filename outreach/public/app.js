@@ -577,7 +577,7 @@ const mmssShort = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${Strin
 function AxisEditor({ axe, item, onSave, onDelete, onClose }) {
   const [nom, setNom] = useState(item?.nom || '');
   const [desc, setDesc] = useState(item?.description || '');
-  return html`<div class="modal-bg" onClick=${onClose}><div class="modal" onClick=${(e) => e.stopPropagation()}>
+  return html`<div class="modal-bg" ...${bgClose(onClose)}><div class="modal">
     <h2>${item ? 'Modifier' : 'Ajouter'} ${axe === 'profil' ? 'un profil (colonne)' : 'un problème / besoin (ligne)'}</h2>
     <div class="field"><label>Nom court</label><input value=${nom} onInput=${(e) => setNom(e.target.value)} placeholder=${axe === 'profil' ? 'ex. RSSI d’ETI réglementée' : 'ex. Trou de visibilité entre deux pentests'} /></div>
     <div class="field"><label>Description (hypothèse, critères)</label><textarea rows="3" value=${desc} onInput=${(e) => setDesc(e.target.value)}></textarea></div>
@@ -592,7 +592,7 @@ function AxisEditor({ axe, item, onSave, onDelete, onClose }) {
 function InsightForm({ initial, data, onSave, onClose }) {
   const [v, setV] = useState({ texte: '', verbatim: '', theme: '', type: 'probleme', force: 3, prospect_id: '', profil_id: '', probleme_id: '', ...initial });
   const f = (k) => (e) => setV({ ...v, [k]: e.target.value });
-  return html`<div class="modal-bg" onClick=${onClose}><div class="modal" onClick=${(e) => e.stopPropagation()}>
+  return html`<div class="modal-bg" ...${bgClose(onClose)}><div class="modal">
     <h2>${initial?.id ? 'Modifier l’insight' : 'Nouvel insight'}</h2>
     <div class="field"><label>Insight (1 phrase factuelle : qui, quoi, dans quelle situation)</label><textarea rows="2" value=${v.texte} onInput=${f('texte')}></textarea></div>
     <div class="field"><label>Verbatim (mots exacts, facultatif)</label><textarea rows="2" value=${v.verbatim} onInput=${f('verbatim')}></textarea></div>
