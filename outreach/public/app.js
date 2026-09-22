@@ -153,6 +153,15 @@ function Login({ onOk }) {
   </form></div>`;
 }
 
+// Fermeture d'une modale par clic sur le fond. Le navigateur envoie un « click » au fond dès que le bouton est
+// relâché dessus, même si l'appui a commencé dans la fenêtre (sélection de texte qui déborde) : on n'agit donc
+// que si l'appui ET le relâchement ont eu lieu sur le fond.
+let bgPressed = false;
+const bgClose = (onClose) => ({
+  onMouseDown: (e) => { bgPressed = e.target === e.currentTarget; },
+  onClick: (e) => { if (e.target === e.currentTarget && bgPressed) onClose(); bgPressed = false; },
+});
+
 function ImportModal({ onClose, onDone }) {
   const [busy, setBusy] = useState(false);
   const [over, setOver] = useState(false);
@@ -181,7 +190,7 @@ function ImportModal({ onClose, onDone }) {
     }
     setLog(lines); setBusy(false); onDone();
   };
-  return html`<div class="modal-bg" onClick=${(e) => e.target === e.currentTarget && onClose()}><div class="modal">
+  return html`<div class="modal-bg" ...${bgClose(onClose)}><div class="modal">
     <h2>Importer des exports Sales Navigator</h2>
     <p class="muted">Les fichiers <code>salesnav-pageNNN-….csv</code> produits par le bouton « ⬇ CSV page ». Un prospect déjà présent est mis à jour sans perdre son suivi (contacté, notes, relance).</p>
     <div class=${'drop' + (over ? ' over' : '')}
@@ -207,7 +216,7 @@ function TemplatesModal({ templates, onClose, onChange }) {
   const del = async (t) => { if (confirm(`Supprimer « ${t.nom} » ?`)) { await api('/templates/' + t.id, { method: 'DELETE' }); onChange(); } };
   const add = async () => { if (adding.nom && adding.corps) { await api('/templates', { method: 'POST', body: adding }); setAdding({ nom: '', corps: '' }); onChange(); } };
   useEffect(() => setDrafts(templates.map((t) => ({ ...t }))), [templates]);
-  return html`<div class="modal-bg" onClick=${(e) => e.target === e.currentTarget && onClose()}><div class="modal">
+  return html`<div class="modal-bg" ...${bgClose(onClose)}><div class="modal">
     <h2>Modèles de message</h2>
     <p class="muted tiny">Tokens remplacés à la copie : <code>[Prénom]</code> <code>[Nom]</code> <code>[Entreprise]</code> <code>[Titre]</code></p>
     ${drafts.map((t, i) => html`<div class="tpl" key=${t.id}>
@@ -227,7 +236,7 @@ function TemplatesModal({ templates, onClose, onChange }) {
 function ExtensionModal({ onClose, toast }) {
   const [token, setToken] = useState('');
   useEffect(() => { api('/token').then((r) => setToken(r.token)).catch((e) => toast(e.message)); }, []);
-  return html`<div class="modal-bg" onClick=${(e) => e.target === e.currentTarget && onClose()}><div class="modal">
+  return html`<div class="modal-bg" ...${bgClose(onClose)}><div class="modal">
     <h2>Connecter l’extension Sales Navigator</h2>
     <p class="muted">Avec ce jeton, l’extension affiche sur chaque prospect Sales Navigator s’il est déjà dans le CRM et s’il a déjà été contacté, envoie les pages visitées ici automatiquement, et marque « contacté » quand tu envoies une invitation.</p>
     <ol class="muted" style="margin:0;padding-left:20px;display:grid;gap:6px">
@@ -303,7 +312,7 @@ function Player({ file, p, onClose, toast }) {
   const hits = needle ? segs.filter((s) => s.text.toLowerCase().includes(needle)).length : 0;
   const copy = () => navigator.clipboard.writeText(segs.map((s) => `[${mmss(s.start)}] ${s.text}`).join('\n')).then(() => toast('Transcript copié'));
 
-  return html`<div class="modal-bg" onClick=${onClose}>
+  return html`<div class="modal-bg" ...${bgClose(onClose)}>
     <div class="modal player" onClick=${(e) => e.stopPropagation()}>
       <div class="player-head">
         <div>
@@ -531,7 +540,7 @@ function LinkedInModal({ onClose, onDone, toast }) {
     } catch (e) { toast(e.message); }
     setBusy('');
   };
-  return html`<div class="modal-bg" onClick=${onClose}><div class="modal" onClick=${(e) => e.stopPropagation()}>
+  return html`<div class="modal-bg" ...${bgClose(onClose)}><div class="modal" onClick=${(e) => e.stopPropagation()}>
     <h2>Ajouter depuis LinkedIn</h2>
     <p class="muted tiny">Sans extension : ouvre le profil dans ton navigateur, colle son lien, puis fais <b>Ctrl+A</b> et <b>Ctrl+C</b> sur la page et colle le texte ici. Le CRM en déduit nom, poste, entreprise, lieu et « À propos », et garde le texte pour la recherche et l’enrichissement e-mail — comme avec l’extension.</p>
     <div class="field"><label>Lien LinkedIn *</label><input value=${url} placeholder="https://www.linkedin.com/in/…" onInput=${(e) => setUrl(e.target.value)} /></div>
