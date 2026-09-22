@@ -47,7 +47,7 @@ Trois niveaux de compte, tous définis par prénom dans `.env` : lecture seule (
 membre (par défaut), administrateur (`OUTREACH_ADMIN`). Un administrateur voit un bouton
 **Sauvegarde** dans la barre du haut : `GET /api/admin/backup.sqlite` fait un `VACUUM INTO` (copie
 cohérente et compacte, sans bloquer les autres) et renvoie le fichier `outreach-<date>.sqlite`.
-Il contient tout (prospects, entreprises, fichiers rattachés, transcripts, matrice, insights) sauf les
+Il contient tout (prospects, entreprises, fichiers rattachés, transcripts) sauf les
 audios eux-mêmes (`data/files/`, ~400 Mo, à récupérer par `rsync` si besoin). Pour restaurer :
 arrêter le service, remplacer `data/outreach.sqlite` (et supprimer `-wal`/`-shm`), redémarrer.
 

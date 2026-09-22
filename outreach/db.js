@@ -65,38 +65,6 @@ export function normName(s) {
 }
 
 function migrate(db) {
-  // ---- Matrice du problème / des opportunités (méthode « mapping the problem », X-HEC) ----
-  // Colonnes = hypothèses de profils d'utilisateurs, lignes = hypothèses de problèmes / besoins.
-  // Chaque insight (commentaire remarquable d'un entretien, horodaté) est positionné dans une case ;
-  // chaque case porte une attractivité (force du besoin, 0-5) et une accessibilité (peut-on atteindre et
-  // vendre à ces clients, 0-5) : attractivité × accessibilité = opportunité.
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS matrice_axes (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      axe TEXT NOT NULL CHECK (axe IN ('profil', 'probleme')),
-      nom TEXT NOT NULL, description TEXT DEFAULT '', position INTEGER NOT NULL DEFAULT 0,
-      cree_le TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS matrice_cases (
-      profil_id INTEGER NOT NULL REFERENCES matrice_axes(id) ON DELETE CASCADE,
-      probleme_id INTEGER NOT NULL REFERENCES matrice_axes(id) ON DELETE CASCADE,
-      attractivite INTEGER, accessibilite INTEGER, commentaire TEXT DEFAULT '',
-      maj TEXT, maj_par TEXT,
-      PRIMARY KEY (profil_id, probleme_id)
-    );
-    CREATE TABLE IF NOT EXISTS insights (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      texte TEXT NOT NULL, verbatim TEXT DEFAULT '', type TEXT DEFAULT '', theme TEXT DEFAULT '', force INTEGER,
-      prospect_id TEXT REFERENCES prospects(id) ON DELETE SET NULL,
-      file_id TEXT REFERENCES files(id) ON DELETE SET NULL, t_debut REAL,
-      profil_id INTEGER REFERENCES matrice_axes(id) ON DELETE SET NULL,
-      probleme_id INTEGER REFERENCES matrice_axes(id) ON DELETE SET NULL,
-      source TEXT NOT NULL DEFAULT 'interview', statut TEXT NOT NULL DEFAULT 'proposé',
-      cree_par TEXT, cree_le TEXT NOT NULL, maj TEXT
-    );
-    CREATE INDEX IF NOT EXISTS insights_case ON insights(profil_id, probleme_id);
-    CREATE INDEX IF NOT EXISTS insights_prospect ON insights(prospect_id);
-  `);
   const cols = db.prepare('PRAGMA table_info(prospects)').all().map((c) => c.name);
   if (!cols.includes('nom_norm')) db.exec('ALTER TABLE prospects ADD COLUMN nom_norm TEXT');
   if (!cols.includes('zone')) db.exec('ALTER TABLE prospects ADD COLUMN zone TEXT');

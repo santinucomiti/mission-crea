@@ -286,7 +286,7 @@ async function api(req, res, url) {
 
   const who = sessionUser(req);
   if (!who) return json(res, 401, { error: 'non connecté' });
-  let m; // captures des routes paramétrées (déclaré ici : les routes matrice l'utilisent avant les routes fichiers)
+  let m; // captures des routes paramétrées
   const readOnly = READONLY.has(who);
   if (readOnly && method !== 'GET' && path !== '/logout') return json(res, 403, { error: 'compte en lecture seule : aucune modification possible' });
 
@@ -483,77 +483,6 @@ async function api(req, res, url) {
     return json(res, 200, { created, prospect: full });
   }
 
-  // ---- matrice du problème / des opportunités ----
-  if (path === '/matrice' && method === 'GET') {
-    const axes = db.prepare('SELECT * FROM matrice_axes ORDER BY position, id').all();
-    return json(res, 200, {
-      profils: axes.filter((a) => a.axe === 'profil'),
-      problemes: axes.filter((a) => a.axe === 'probleme'),
-      cases: db.prepare('SELECT * FROM matrice_cases').all(),
-      insights: db.prepare(`SELECT i.*, p.nom_complet, p.entreprise, p.titre AS prospect_titre, f.filename
-        FROM insights i LEFT JOIN prospects p ON p.id = i.prospect_id LEFT JOIN files f ON f.id = i.file_id
-        ORDER BY i.force DESC, i.id`).all(),
-      interviewes: db.prepare(`SELECT p.id, p.nom_complet, p.entreprise, (SELECT f.id FROM files f JOIN transcripts t ON t.file_id = f.id WHERE f.prospect_id = p.id ORDER BY f.uploaded_at DESC LIMIT 1) AS file_id
-        FROM prospects p WHERE p.interviewe = 1 OR EXISTS (SELECT 1 FROM files f WHERE f.prospect_id = p.id) ORDER BY p.nom_complet COLLATE NOCASE`).all(),
-    });
-  }
-  if (path === '/matrice/axes' && method === 'POST') {
-    const b = await readJson(req);
-    if (!['profil', 'probleme'].includes(b.axe) || !String(b.nom || '').trim()) return json(res, 400, { error: 'axe (profil|probleme) et nom requis' });
-    const pos = (db.prepare('SELECT COALESCE(MAX(position), 0) + 1 AS p FROM matrice_axes WHERE axe = ?').get(b.axe)).p;
-    const r = db.prepare('INSERT INTO matrice_axes (axe, nom, description, position, cree_le) VALUES (?, ?, ?, ?, ?)').run(b.axe, String(b.nom).trim(), String(b.description || ''), pos, new Date().toISOString());
-    return json(res, 200, db.prepare('SELECT * FROM matrice_axes WHERE id = ?').get(r.lastInsertRowid));
-  }
-  if ((m = path.match(/^\/matrice\/axes\/(\d+)$/)) && method === 'PATCH') {
-    const b = await readJson(req);
-    const cur = db.prepare('SELECT * FROM matrice_axes WHERE id = ?').get(Number(m[1]));
-    if (!cur) return json(res, 404, { error: 'axe introuvable' });
-    db.prepare('UPDATE matrice_axes SET nom = ?, description = ?, position = ? WHERE id = ?')
-      .run(String(b.nom ?? cur.nom).trim() || cur.nom, String(b.description ?? cur.description ?? ''), Number.isFinite(Number(b.position)) ? Number(b.position) : cur.position, cur.id);
-    return json(res, 200, db.prepare('SELECT * FROM matrice_axes WHERE id = ?').get(cur.id));
-  }
-  if ((m = path.match(/^\/matrice\/axes\/(\d+)$/)) && method === 'DELETE') {
-    const n = db.prepare('SELECT COUNT(*) AS n FROM insights WHERE profil_id = ? OR probleme_id = ?').get(Number(m[1]), Number(m[1])).n;
-    db.prepare('DELETE FROM matrice_axes WHERE id = ?').run(Number(m[1]));
-    return json(res, 200, { ok: true, insightsDeclasses: n });
-  }
-  if ((m = path.match(/^\/matrice\/cases\/(\d+)\/(\d+)$/)) && method === 'PUT') {
-    const b = await readJson(req);
-    const score = (v) => (v === null || v === undefined || v === '' ? null : Math.max(0, Math.min(5, Math.round(Number(v)))));
-    db.prepare(`INSERT INTO matrice_cases (profil_id, probleme_id, attractivite, accessibilite, commentaire, maj, maj_par) VALUES (@p, @q, @a, @b, @c, @now, @who)
-      ON CONFLICT(profil_id, probleme_id) DO UPDATE SET attractivite = excluded.attractivite, accessibilite = excluded.accessibilite, commentaire = excluded.commentaire, maj = excluded.maj, maj_par = excluded.maj_par`)
-      .run({ p: Number(m[1]), q: Number(m[2]), a: score(b.attractivite), b: score(b.accessibilite), c: String(b.commentaire || ''), now: new Date().toISOString(), who });
-    return json(res, 200, db.prepare('SELECT * FROM matrice_cases WHERE profil_id = ? AND probleme_id = ?').get(Number(m[1]), Number(m[2])));
-  }
-  if (path === '/insights' && method === 'POST') {
-    const b = await readJson(req);
-    const texte = String(b.texte || '').trim();
-    if (!texte) return json(res, 400, { error: 'texte requis' });
-    const r = db.prepare(`INSERT INTO insights (texte, verbatim, type, theme, force, prospect_id, file_id, t_debut, profil_id, probleme_id, source, statut, cree_par, cree_le)
-      VALUES (@texte, @verbatim, @type, @theme, @force, @prospect_id, @file_id, @t_debut, @profil_id, @probleme_id, @source, @statut, @who, @now)`).run({
-      texte, verbatim: String(b.verbatim || ''), type: String(b.type || ''), theme: String(b.theme || ''), force: b.force == null || b.force === '' ? null : Math.max(0, Math.min(5, Number(b.force))),
-      prospect_id: b.prospect_id || null, file_id: b.file_id || null, t_debut: b.t_debut == null ? null : Number(b.t_debut),
-      profil_id: b.profil_id ? Number(b.profil_id) : null, probleme_id: b.probleme_id ? Number(b.probleme_id) : null,
-      source: ['interview', 'marche', 'ia'].includes(b.source) ? b.source : 'interview', statut: ['proposé', 'validé', 'rejeté'].includes(b.statut) ? b.statut : 'proposé', who, now: new Date().toISOString() });
-    return json(res, 200, db.prepare('SELECT * FROM insights WHERE id = ?').get(r.lastInsertRowid));
-  }
-  if ((m = path.match(/^\/insights\/(\d+)$/)) && method === 'PATCH') {
-    const b = await readJson(req);
-    const cur = db.prepare('SELECT * FROM insights WHERE id = ?').get(Number(m[1]));
-    if (!cur) return json(res, 404, { error: 'insight introuvable' });
-    const has = (k) => Object.prototype.hasOwnProperty.call(b, k);
-    db.prepare(`UPDATE insights SET texte = @texte, verbatim = @verbatim, type = @type, theme = @theme, force = @force, profil_id = @profil_id, probleme_id = @probleme_id, statut = @statut, prospect_id = @prospect_id, file_id = @file_id, t_debut = @t_debut, maj = @now WHERE id = @id`).run({
-      id: cur.id, texte: has('texte') ? String(b.texte).trim() || cur.texte : cur.texte, verbatim: has('verbatim') ? String(b.verbatim) : cur.verbatim, type: has('type') ? String(b.type) : cur.type, theme: has('theme') ? String(b.theme) : cur.theme,
-      force: has('force') ? (b.force == null || b.force === '' ? null : Math.max(0, Math.min(5, Number(b.force)))) : cur.force,
-      profil_id: has('profil_id') ? (b.profil_id ? Number(b.profil_id) : null) : cur.profil_id, probleme_id: has('probleme_id') ? (b.probleme_id ? Number(b.probleme_id) : null) : cur.probleme_id,
-      statut: has('statut') && ['proposé', 'validé', 'rejeté'].includes(b.statut) ? b.statut : cur.statut,
-      prospect_id: has('prospect_id') ? (b.prospect_id || null) : cur.prospect_id, file_id: has('file_id') ? (b.file_id || null) : cur.file_id, t_debut: has('t_debut') ? (b.t_debut == null ? null : Number(b.t_debut)) : cur.t_debut, now: new Date().toISOString() });
-    return json(res, 200, db.prepare('SELECT * FROM insights WHERE id = ?').get(cur.id));
-  }
-  if ((m = path.match(/^\/insights\/(\d+)$/)) && method === 'DELETE') {
-    db.prepare('DELETE FROM insights WHERE id = ?').run(Number(m[1]));
-    return json(res, 200, { ok: true });
-  }
 
   if (path === '/export.csv' && method === 'GET') {
     const rows = db.prepare(`

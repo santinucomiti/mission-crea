@@ -251,7 +251,7 @@ const isPlayable = (f) => /^audio\//.test(f.mime || '') || /\.(mp3|m4a|aac|wav|o
 // en temps réel (comme les paroles sur Spotify). Clic sur un mot ou une phrase → saut dans l'audio.
 const mmss = (s) => { s = Math.max(0, Math.floor(s)); const m = Math.floor(s / 60); return `${m}:${String(s % 60).padStart(2, '0')}`; };
 
-function Player({ file, p, onClose, toast, start, onInsight }) {
+function Player({ file, p, onClose, toast }) {
   const [tr, setTr] = useState(null);
   const [t, setT] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -313,7 +313,6 @@ function Player({ file, p, onClose, toast, start, onInsight }) {
         <button class="btn ghost small" onClick=${onClose} aria-label="Fermer">✕</button>
       </div>
       <audio ref=${audio} controls preload="metadata" src=${'/api/files/' + file.id}
-        onLoadedMetadata=${() => { if (start > 0 && audio.current) { audio.current.currentTime = start; setT(start); } }}
         onPlay=${onPlay} onPause=${onPause} onSeeked=${() => setT(audio.current.currentTime)} onEnded=${onPause}></audio>
       <div class="player-bar">
         <span class="mono tiny clock">${mmss(t)}${tr ? ` / ${mmss(tr.segments[segs.length - 1]?.end || 0)}` : ''}</span>
@@ -324,7 +323,6 @@ function Player({ file, p, onClose, toast, start, onInsight }) {
         ${needle && html`<span class="muted tiny">${hits} phrase${hits > 1 ? 's' : ''}</span>`}
         ${!follow && playing && html`<button class="btn small" onClick=${() => setFollow(true)}>↧ Suivre</button>`}
         <button class="btn ghost small" onClick=${copy} title="Copier le transcript horodaté">Copier</button>
-        ${onInsight && html`<button class="btn small primary" title="Créer un insight à partir de la phrase en cours (matrice du problème)" onClick=${() => { const sg = segs[cur >= 0 ? cur : 0]; if (!sg) return; onInsight({ texte: sg.text.trim(), verbatim: sg.text.trim(), t_debut: sg.start, file_id: file.id, prospect_id: p.id }); }}>＋ Insight</button>`}
         <span class="muted tiny kbd">espace · ← → 5 s</span>
       </div>
       <div class="lyrics" ref=${box} onScroll=${onScroll}>
@@ -392,8 +390,7 @@ function Files({ p, toast }) {
             ? html`<button class="btn small transcript-btn" onClick=${() => setPlayer(f)}>🎧 Lecteur synchronisé · transcript</button>`
             : html`<span class="muted tiny">Pas encore de transcript</span>`)}
         </li>`)}</ul>`}
-    ${player && html`<${Player} file=${player} p=${p} onClose=${() => setPlayer(null)} toast=${toast}
-      onInsight=${async (ins) => { try { await api('/insights', { method: 'POST', body: { ...ins, type: 'probleme' } }); toast('Insight créé (non classé) — à placer dans la matrice'); } catch (e) { toast(e.message); } }} />`}
+    ${player && html`<${Player} file=${player} p=${p} onClose=${() => setPlayer(null)} toast=${toast} />`}
   </section>`;
 }
 
@@ -557,170 +554,6 @@ function LinkedInModal({ onClose, onDone, toast }) {
   </div></div>`;
 }
 
-// ---------- Matrice du problème / des opportunités (méthode « mapping the problem », X-HEC) ----------
-// Colonnes = profils d'utilisateurs ; lignes = problèmes / besoins ; dans chaque case, les insights des entretiens.
-// Attractivité (0-5) = force du besoin dans cette case ; accessibilité (0-5) = peut-on atteindre et convaincre ces
-// clients ; opportunité = attractivité ≥ 4 et accessibilité ≥ 3.
-const ECHELLE = ['0 · Sans importance', '1 · Peu important', '2 · Un peu important', '3 · Plutôt important', '4 · Très important', '5 · Ne peut pas s’en passer'];
-const isOpp = (c) => c && c.attractivite >= 4 && c.accessibilite >= 3;
-const mmssShort = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-
-function AxisEditor({ axe, item, onSave, onDelete, onClose }) {
-  const [nom, setNom] = useState(item?.nom || '');
-  const [desc, setDesc] = useState(item?.description || '');
-  return html`<div class="modal-bg" onClick=${onClose}><div class="modal" onClick=${(e) => e.stopPropagation()}>
-    <h2>${item ? 'Modifier' : 'Ajouter'} ${axe === 'profil' ? 'un profil (colonne)' : 'un problème / besoin (ligne)'}</h2>
-    <div class="field"><label>Nom court</label><input value=${nom} onInput=${(e) => setNom(e.target.value)} placeholder=${axe === 'profil' ? 'ex. RSSI d’ETI réglementée' : 'ex. Trou de visibilité entre deux pentests'} /></div>
-    <div class="field"><label>Description (hypothèse, critères)</label><textarea rows="3" value=${desc} onInput=${(e) => setDesc(e.target.value)}></textarea></div>
-    <div class="modal-actions">
-      ${item && html`<button class="btn danger" onClick=${() => { if (confirm(`Supprimer « ${item.nom} » ? Les insights de cette ${axe === 'profil' ? 'colonne' : 'ligne'} passent en « non classés ».`)) onDelete(item); }}>Supprimer</button>`}
-      <span class="spacer"></span>
-      <button class="btn" onClick=${onClose}>Annuler</button>
-      <button class="btn primary" disabled=${!nom.trim()} onClick=${() => onSave({ nom: nom.trim(), description: desc })}>Enregistrer</button>
-    </div></div></div>`;
-}
-
-function InsightForm({ initial, data, onSave, onClose }) {
-  const [v, setV] = useState({ texte: '', verbatim: '', theme: '', type: 'probleme', force: 3, prospect_id: '', profil_id: '', probleme_id: '', ...initial });
-  const f = (k) => (e) => setV({ ...v, [k]: e.target.value });
-  return html`<div class="modal-bg" onClick=${onClose}><div class="modal" onClick=${(e) => e.stopPropagation()}>
-    <h2>${initial?.id ? 'Modifier l’insight' : 'Nouvel insight'}</h2>
-    <div class="field"><label>Insight (1 phrase factuelle : qui, quoi, dans quelle situation)</label><textarea rows="2" value=${v.texte} onInput=${f('texte')}></textarea></div>
-    <div class="field"><label>Verbatim (mots exacts, facultatif)</label><textarea rows="2" value=${v.verbatim} onInput=${f('verbatim')}></textarea></div>
-    <div class="grid2">
-      <div class="field"><label>Interviewé</label><select value=${v.prospect_id || ''} onChange=${f('prospect_id')}><option value="">—</option>${data.interviewes.map((x) => html`<option value=${x.id}>${x.nom_complet}${x.entreprise ? ' · ' + x.entreprise : ''}</option>`)}</select></div>
-      <div class="field"><label>Type</label><select value=${v.type} onChange=${f('type')}>${['probleme', 'besoin', 'pratique_actuelle', 'objection', 'signal_faible'].map((t) => html`<option value=${t}>${t.replace('_', ' ')}</option>`)}</select></div>
-      <div class="field"><label>Profil (colonne)</label><select value=${v.profil_id || ''} onChange=${f('profil_id')}><option value="">non classé</option>${data.profils.map((x) => html`<option value=${x.id}>${x.nom}</option>`)}</select></div>
-      <div class="field"><label>Problème / besoin (ligne)</label><select value=${v.probleme_id || ''} onChange=${f('probleme_id')}><option value="">non classé</option>${data.problemes.map((x) => html`<option value=${x.id}>${x.nom}</option>`)}</select></div>
-      <div class="field"><label>Thème (étiquette libre)</label><input value=${v.theme} onInput=${f('theme')} /></div>
-      <div class="field"><label>Force du besoin vécue par l’interviewé</label><select value=${v.force ?? ''} onChange=${f('force')}>${ECHELLE.map((l, i) => html`<option value=${i}>${l}</option>`)}</select></div>
-    </div>
-    <div class="modal-actions"><button class="btn" onClick=${onClose}>Annuler</button><button class="btn primary" disabled=${!v.texte.trim()} onClick=${() => onSave(v)}>Enregistrer</button></div>
-  </div></div>`;
-}
-
-function MatriceView({ toast, ro, who }) {
-  const [data, setData] = useState(null);
-  const [sel, setSel] = useState(null);          // { profil_id, probleme_id } ou 'nc' (non classés)
-  const [axisEd, setAxisEd] = useState(null);    // { axe, item }
-  const [insEd, setInsEd] = useState(null);      // initial d'un insight
-  const [player, setPlayer] = useState(null);    // { file, p, start }
-  const [showRej, setShowRej] = useState(false);
-  const load = () => api('/matrice').then(setData).catch((e) => toast(e.message));
-  useEffect(() => { load(); }, []);
-  if (!data) return html`<div class="empty">Chargement de la matrice…</div>`;
-
-  const cellOf = (pi, qi) => data.cases.find((c) => c.profil_id === pi && c.probleme_id === qi);
-  const insOf = (pi, qi) => data.insights.filter((i) => i.profil_id === pi && i.probleme_id === qi && (showRej || i.statut !== 'rejeté'));
-  const nonClasses = data.insights.filter((i) => (!i.profil_id || !i.probleme_id) && (showRej || i.statut !== 'rejeté'));
-  const saveAxis = async (axe, item, v) => {
-    try { if (item) await api('/matrice/axes/' + item.id, { method: 'PATCH', body: v }); else await api('/matrice/axes', { method: 'POST', body: { axe, ...v } }); setAxisEd(null); load(); } catch (e) { toast(e.message); }
-  };
-  const delAxis = async (item) => { try { await api('/matrice/axes/' + item.id, { method: 'DELETE' }); setAxisEd(null); setSel(null); load(); } catch (e) { toast(e.message); } };
-  const saveCell = async (pi, qi, v) => { try { await api(`/matrice/cases/${pi}/${qi}`, { method: 'PUT', body: v }); load(); } catch (e) { toast(e.message); } };
-  const saveIns = async (v) => { try { if (v.id) await api('/insights/' + v.id, { method: 'PATCH', body: v }); else await api('/insights', { method: 'POST', body: v }); setInsEd(null); load(); } catch (e) { toast(e.message); } };
-  const patchIns = async (i, v) => { try { await api('/insights/' + i.id, { method: 'PATCH', body: v }); load(); } catch (e) { toast(e.message); } };
-  const delIns = async (i) => { if (!confirm('Supprimer cet insight ?')) return; try { await api('/insights/' + i.id, { method: 'DELETE' }); load(); } catch (e) { toast(e.message); } };
-  const openAudio = (i) => { if (!i.file_id) return; setPlayer({ file: { id: i.file_id, filename: i.filename }, p: { id: i.prospect_id, nom_complet: i.nom_complet }, start: i.t_debut || 0 }); };
-
-  const selCell = sel && sel !== 'nc' ? cellOf(sel.profil_id, sel.probleme_id) : null;
-  const selIns = sel === 'nc' ? nonClasses : sel ? insOf(sel.profil_id, sel.probleme_id) : [];
-  const selProfil = sel && sel !== 'nc' ? data.profils.find((x) => x.id === sel.profil_id) : null;
-  const selProb = sel && sel !== 'nc' ? data.problemes.find((x) => x.id === sel.probleme_id) : null;
-  const nOpp = data.cases.filter(isOpp).length;
-  const nValid = data.insights.filter((i) => i.statut === 'validé').length;
-  const nProp = data.insights.filter((i) => i.statut === 'proposé').length;
-
-  return html`<div class=${'layout matrice-layout' + (sel ? ' with-detail' : '')}>
-    <main class="main matrice-main">
-      <div class="list-head">
-        <span class="count">Matrice du problème · ${data.profils.length} profils × ${data.problemes.length} problèmes · ${data.insights.length} insights (${nValid} validés, ${nProp} à valider) · <b>${nOpp} opportunité${nOpp > 1 ? 's' : ''}</b></span>
-        <span class="spacer"></span>
-        <label class="tiny muted"><input type="checkbox" checked=${showRej} onChange=${(e) => setShowRej(e.target.checked)} /> voir les rejetés</label>
-        ${!ro && html`<button class="btn small" onClick=${() => setAxisEd({ axe: 'profil' })}>＋ Profil</button>
-        <button class="btn small" onClick=${() => setAxisEd({ axe: 'probleme' })}>＋ Problème</button>
-        <button class="btn small primary" onClick=${() => setInsEd({})}>＋ Insight</button>`}
-      </div>
-      <div class="legend-bar tiny muted">
-        <span><b>Attractivité</b> (grand chiffre) : force du besoin, 0 → 5. <b>Accessibilité</b> (petit chiffre) : peut-on atteindre et convaincre ces clients, 0 → 5.</span>
-        <span class="opp-badge">★ opportunité = attractivité ≥ 4 et accessibilité ≥ 3</span>
-        <span>Nombres : insights <b>validés</b> · <i>à valider</i>. Clique une case.</span>
-      </div>
-      ${data.profils.length === 0 && data.problemes.length === 0
-        ? html`<div class="empty"><h2>La matrice est vide</h2><p>Ajoute des hypothèses de profils (colonnes) et de problèmes (lignes), puis place les insights des entretiens dans les cases.</p></div>`
-        : html`<div class="matrice-scroll"><table class="matrice">
-          <thead><tr><th class="corner">Problème / besoin ↓ · Profil →</th>
-            ${data.profils.map((pr) => html`<th key=${pr.id} title=${pr.description || ''}><button class="axis-btn" onClick=${() => !ro && setAxisEd({ axe: 'profil', item: pr })}>${pr.nom}</button></th>`)}
-          </tr></thead>
-          <tbody>
-            ${data.problemes.map((pb) => html`<tr key=${pb.id}>
-              <th class="rowhead" title=${pb.description || ''}><button class="axis-btn" onClick=${() => !ro && setAxisEd({ axe: 'probleme', item: pb })}>${pb.nom}</button></th>
-              ${data.profils.map((pr) => {
-                const c = cellOf(pr.id, pb.id); const ins = insOf(pr.id, pb.id);
-                const nv = ins.filter((i) => i.statut === 'validé').length, np = ins.filter((i) => i.statut === 'proposé').length;
-                const active = sel && sel !== 'nc' && sel.profil_id === pr.id && sel.probleme_id === pb.id;
-                const a = c?.attractivite;
-                return html`<td key=${pr.id} class=${'cell a' + (a ?? 'x') + (isOpp(c) ? ' opp' : '') + (active ? ' active' : '')} onClick=${() => setSel({ profil_id: pr.id, probleme_id: pb.id })}>
-                  <div class="score">${a ?? '·'}<sub>${c?.accessibilite ?? ''}</sub></div>
-                  <div class="counts">${nv ? html`<b>${nv}</b>` : ''}${np ? html`<i>${nv ? ' · ' : ''}${np}</i>` : ''}</div>
-                  ${isOpp(c) && html`<span class="star">★</span>`}
-                </td>`;
-              })}
-            </tr>`)}
-            <tr class="nc-row"><th class="rowhead"><button class=${'axis-btn' + (sel === 'nc' ? ' active' : '')} onClick=${() => setSel('nc')}>Non classés <span class="n">${nonClasses.length}</span></button></th><td colspan=${data.profils.length} class="nc-cell muted tiny">insights sans profil ou sans problème — à placer, ou signes d’un nouveau profil / d’un nouveau problème</td></tr>
-          </tbody>
-        </table></div>`}
-    </main>
-
-    ${sel && html`<aside class="detail matrice-panel">
-      <div class="detail-head">
-        <div>
-          <h2>${sel === 'nc' ? 'Non classés' : `${selProb?.nom || '?'}`}</h2>
-          ${sel !== 'nc' && html`<div class="muted tiny">Profil : <b>${selProfil?.nom}</b>${selProfil?.description ? ' — ' + selProfil.description : ''}</div>`}
-          ${sel !== 'nc' && selProb?.description && html`<div class="muted tiny">${selProb.description}</div>`}
-        </div>
-        <button class="btn ghost small" onClick=${() => setSel(null)} aria-label="Fermer">✕</button>
-      </div>
-      ${sel !== 'nc' && html`<section class="cell-scores">
-        <div class="grid2">
-          <div class="field"><label>Attractivité · force du besoin</label>
-            <select disabled=${ro} value=${selCell?.attractivite ?? ''} onChange=${(e) => saveCell(sel.profil_id, sel.probleme_id, { ...selCell, attractivite: e.target.value })}><option value="">non évaluée</option>${ECHELLE.map((l, i) => html`<option value=${i}>${l}</option>`)}</select></div>
-          <div class="field"><label>Accessibilité · clients atteignables</label>
-            <select disabled=${ro} value=${selCell?.accessibilite ?? ''} onChange=${(e) => saveCell(sel.profil_id, sel.probleme_id, { ...selCell, accessibilite: e.target.value })}><option value="">non évaluée</option>${[0, 1, 2, 3, 4, 5].map((i) => html`<option value=${i}>${i} · ${['inatteignables', 'très difficile', 'difficile', 'possible', 'facile', 'déjà en contact'][i]}</option>`)}</select></div>
-        </div>
-        <div class="field"><label>Pourquoi (synthèse de la case, décision)</label>
-          <textarea rows="2" disabled=${ro} value=${selCell?.commentaire || ''} onBlur=${(e) => { if ((selCell?.commentaire || '') !== e.target.value) saveCell(sel.profil_id, sel.probleme_id, { ...selCell, commentaire: e.target.value }); }}></textarea></div>
-        ${isOpp(selCell) && html`<div class="opp-flag">★ Opportunité : besoin fort et clients accessibles.</div>`}
-        ${selCell?.maj && html`<div class="muted tiny">Évaluée par ${selCell.maj_par || '?'} · ${fmtDateTime(selCell.maj)}</div>`}
-      </section>`}
-      <section>
-        <h3>${selIns.length} insight${selIns.length > 1 ? 's' : ''} ${!ro && html`<button class="btn small" onClick=${() => setInsEd(sel === 'nc' ? {} : { profil_id: sel.profil_id, probleme_id: sel.probleme_id })}>＋ ajouter</button>`}</h3>
-        ${selIns.length === 0 && html`<div class="muted tiny">Aucun insight ici.</div>`}
-        <ul class="insights">${selIns.map((i) => html`<li key=${i.id} class=${'insight ' + i.statut}>
-          <div class="ins-head"><span class=${'chip force f' + (i.force ?? 'x')} title=${i.force != null ? ECHELLE[i.force] : 'force non évaluée'}>${i.force ?? '·'}</span>
-            <span class="chip tiny">${(i.type || '').replace('_', ' ') || 'insight'}</span>${i.theme && html`<span class="chip tiny theme">${i.theme}</span>`}
-            <span class=${'chip tiny statut ' + i.statut}>${i.statut}</span><span class="spacer"></span>
-            ${i.file_id && html`<button class="btn ghost small" title="Écouter à cet instant" onClick=${() => openAudio(i)}>🎧 ${i.t_debut != null ? mmssShort(i.t_debut) : ''}</button>`}
-          </div>
-          <div class="ins-text">${i.texte}</div>
-          ${i.verbatim && html`<div class="ins-verbatim">« ${i.verbatim} »</div>`}
-          <div class="muted tiny">${i.nom_complet ? html`<b>${i.nom_complet}</b>${i.entreprise ? ' · ' + i.entreprise : ''}` : 'source : ' + i.source}${i.cree_par ? ` · saisi par ${i.cree_par}` : ''}</div>
-          ${!ro && html`<div class="ins-actions">
-            ${i.statut !== 'validé' && html`<button class="btn small" onClick=${() => patchIns(i, { statut: 'validé' })}>✓ Valider</button>`}
-            ${i.statut !== 'rejeté' && html`<button class="btn ghost small" onClick=${() => patchIns(i, { statut: 'rejeté' })}>Rejeter</button>`}
-            <button class="btn ghost small" onClick=${() => setInsEd({ ...i })}>Modifier / déplacer</button>
-            <button class="btn ghost small" onClick=${() => delIns(i)}>✕</button>
-          </div>`}
-        </li>`)}</ul>
-      </section>
-    </aside>`}
-
-    ${axisEd && html`<${AxisEditor} axe=${axisEd.axe} item=${axisEd.item} onSave=${(v) => saveAxis(axisEd.axe, axisEd.item, v)} onDelete=${delAxis} onClose=${() => setAxisEd(null)} />`}
-    ${insEd && html`<${InsightForm} initial=${insEd} data=${data} onSave=${saveIns} onClose=${() => setInsEd(null)} />`}
-    ${player && html`<${Player} file=${player.file} p=${player.p} start=${player.start} onClose=${() => setPlayer(null)} toast=${toast} />`}
-  </div>`;
-}
-
 function App() {
   const [auth, setAuth] = useState('unknown');
   const [people, setPeople] = useState([]);
@@ -744,7 +577,6 @@ function App() {
     setNotionBusy(false);
   };
   const [modal, setModal] = useState(null);
-  const [view, setView] = useState(() => (location.hash.includes('matrice') ? 'matrice' : 'prospects'));
   const [toastMsg, setToastMsg] = useState('');
   const toastTimer = useRef();
 
@@ -827,12 +659,8 @@ function App() {
       <div class="brand"><span class="logo"></span>Outreach <span class="sub">Mission Créa</span></div>
       <input class="search" type="search" placeholder="Rechercher nom, titre, entreprise, ville, notes, profil LinkedIn…" title="Mots-clés : chaque mot doit apparaître dans la fiche (nom, poste, entreprise, ville, notes, e-mail, « À propos », profil LinkedIn aspiré)" value=${filters.q} onInput=${(e) => set({ q: e.target.value })} />
       <span class="spacer"></span>
-      <div class="seg view-seg" role="group" aria-label="Vue">
-        <button class=${'seg-btn' + (view === 'prospects' ? ' active' : '')} onClick=${() => { setView('prospects'); history.replaceState(null, '', location.pathname); }}>Prospects</button>
-        <button class=${'seg-btn' + (view === 'matrice' ? ' active' : '')} onClick=${() => { setView('matrice'); setSelectedId(null); history.replaceState(null, '', '#matrice'); }} title="Matrice du problème et des opportunités (profils × problèmes, insights des entretiens)">Matrice</button>
-      </div>
       <a class="btn" href="/api/export.csv" download>Exporter CSV</a>
-      ${admin && html`<a class="btn" href="/api/admin/backup.sqlite" download title="Télécharge une copie complète de la base (prospects, entreprises, transcripts, matrice, insights) au format SQLite. Les audios ne sont pas inclus.">Sauvegarde</a>`}
+      ${admin && html`<a class="btn" href="/api/admin/backup.sqlite" download title="Télécharge une copie complète de la base (prospects, entreprises, fichiers rattachés, transcripts) au format SQLite. Les audios ne sont pas inclus.">Sauvegarde</a>`}
       ${!ro && html`<button class="btn" onClick=${() => setModal('linkedin')} title="Ajouter une personne avec son lien LinkedIn, sans l’extension">＋ Depuis LinkedIn</button>
       <button class="btn" onClick=${() => setModal('extension')}>Extension</button>
       ${notionOn && html`<button class="btn" disabled=${notionBusy} onClick=${syncNotion} title="Entretiens réalisés ↔ Notion « Liste de contacts »">${notionBusy ? 'Notion…' : 'Notion'}</button>`}
@@ -844,7 +672,7 @@ function App() {
       </div>
     </header>
 
-    ${view === 'matrice' ? html`<${MatriceView} toast=${toast} ro=${ro} who=${who} />` : html`<div class=${'layout' + (selected ? ' with-detail' : '')}>
+    <div class=${'layout' + (selected ? ' with-detail' : '')}>
       <nav class="rail">
         <h3>Suivi</h3>
         <button class=${'row' + (filters.contacte === 'all' && !filters.relance ? ' active' : '')} onClick=${() => set({ contacte: 'all', relance: false })}>Tous <span class="n">${counts.total}</span></button>
@@ -897,9 +725,9 @@ function App() {
       </main>
 
       ${selected && html`<${Detail} key=${selected.id} p=${selected} people=${people} templates=${templates} onPatch=${onPatch} onClose=${() => setSelectedId(null)} toast=${toast} />`}
-    </div>`}
+    </div>
 
-    ${modal === 'linkedin' && html`<${LinkedInModal} onClose=${() => setModal(null)} toast=${toast} onDone=${(row) => { api('/prospects').then(setProspects); setView('prospects'); setSelectedId(row.id); }} />`}
+    ${modal === 'linkedin' && html`<${LinkedInModal} onClose=${() => setModal(null)} toast=${toast} onDone=${(row) => { api('/prospects').then(setProspects); setSelectedId(row.id); }} />`}
     ${modal === 'import' && html`<${ImportModal} onClose=${() => setModal(null)} onDone=${() => api('/prospects').then(setProspects)} />`}
     ${modal === 'extension' && html`<${ExtensionModal} onClose=${() => setModal(null)} toast=${toast} />`}
     ${modal === 'templates' && html`<${TemplatesModal} templates=${templates} onClose=${() => setModal(null)} onChange=${() => api('/templates').then(setTemplates)} />`}
